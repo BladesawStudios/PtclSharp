@@ -1,6 +1,7 @@
 // Corpus extractor for the TotK PTCL research (docs/research/totk-emtr-offsets-ghidra.md).
-// usage: PtclCorpus <command> <romfsRoot> <outPath>
-//   emtr   <romfs> <out.bin>   every EMTR data block (0x10C8 bytes): [i32 len][64B file name][u32 node size][data]
+// usage: PtclCorpus <command> <game> <root> <outPath>   (game: totk | botw)
+//   totk root = romfs root (contains Effect/*.esetb.byml.zs and Pack/ZsDic.pack.zs); botw root = ROM root (contains Effect/*.sesetlist)
+//   emtr   every EMTR data block (0x10C8 bytes for TotK, 0xA88 for BotW): [i32 len][64B file name][u32 node size][data]
 //   attrs  <romfs> <out.bin>   every non-ESTA/ESET/EMTR node: [4B kind][4B parent kind][i32 len][node bytes]
 //   bnsh   <romfs> <outDir>    every distinct BNSH inside GRSN/GRSR, named <sha1>.bnsh (+ .src with the source file)
 // The shared Zstd dictionary (ID 1) is read from <romfs>/Pack/ZsDic.pack.zs.
@@ -9,27 +10,33 @@ using System.Text;
 using PtclSharp;
 using ZstdSharp;
 
-if (args.Length < 3) { Console.Error.WriteLine("usage: PtclCorpus <emtr|attrs|bnsh> <romfs> <out>"); return 1; }
-string cmd = args[0], romfs = args[1], outPath = args[2];
+if (args.Length < 4) { Console.Error.WriteLine("usage: PtclCorpus <emtr|attrs|bnsh> <totk|botw> <root> <out>"); return 1; }
+string cmd = args[0], game = args[1], romfs = args[2], outPath = args[3];
+bool botw = game == "botw";
+int emitterSize = botw ? 0xA88 : 0x10C8;
 
-byte[] sarc;
-using (var d = new Decompressor()) sarc = d.Unwrap(File.ReadAllBytes(Path.Combine(romfs, "Pack", "ZsDic.pack.zs"))).ToArray();
-int dataOff = BitConverter.ToInt32(sarc, 0xC), sfat = 0x14, cnt = BitConverter.ToUInt16(sarc, sfat + 6);
 byte[]? dict = null;
-for (int i = 0; i < cnt; i++)
+if (!botw)
 {
-    int e = sfat + 12 + i * 16, s = BitConverter.ToInt32(sarc, e + 8), en = BitConverter.ToInt32(sarc, e + 12);
-    var cand = sarc[(dataOff + s)..(dataOff + en)];
-    if (BitConverter.ToUInt32(cand, 4) == 1) dict = cand; // dictionary ID 1 is what the .esetb files use
+    byte[] sarc;
+    using (var d = new Decompressor()) sarc = d.Unwrap(File.ReadAllBytes(Path.Combine(romfs, "Pack", "ZsDic.pack.zs"))).ToArray();
+    int dataOff = BitConverter.ToInt32(sarc, 0xC), sfat = 0x14, cnt = BitConverter.ToUInt16(sarc, sfat + 6);
+    for (int i = 0; i < cnt; i++)
+    {
+        int e = sfat + 12 + i * 16, s = BitConverter.ToInt32(sarc, e + 8), en = BitConverter.ToInt32(sarc, e + 12);
+        var cand = sarc[(dataOff + s)..(dataOff + en)];
+        if (BitConverter.ToUInt32(cand, 4) == 1) dict = cand; // dictionary ID 1 is what the .esetb files use
+    }
 }
 
 IEnumerable<(string name, VfxbFile vfxb)> Load()
 {
-    foreach (var f in Directory.GetFiles(Path.Combine(romfs, "Effect"), "*.esetb.byml.zs"))
+    string pattern = botw ? "*.sesetlist" : "*.esetb.byml.zs";
+    foreach (var f in Directory.GetFiles(Path.Combine(romfs, "Effect"), pattern).Order(StringComparer.Ordinal))
     {
         VfxbFile? v = null;
-        try { v = PtclFile.ReadEsetb(File.ReadAllBytes(f), dict).Vfxb; }
-        catch { /* 62 files are rejected by the current tree reader; see the doc's container section */ }
+        try { v = botw ? PtclFile.ReadSesetlist(File.ReadAllBytes(f)).Vfxb : PtclFile.ReadEsetb(File.ReadAllBytes(f), dict).Vfxb; }
+        catch (Exception ex) { Console.Error.WriteLine($"{Path.GetFileName(f)}: {ex.Message}"); }
         if (v != null) yield return (Path.GetFileName(f), v);
     }
 }
@@ -46,7 +53,7 @@ switch (cmd)
             {
                 if (node.Kind == "EMTR" && node.DataOffset is int o)
                 {
-                    int len = Math.Min(0x10C8, v.Data.Length - o);
+                    int len = Math.Min(emitterSize, v.Data.Length - o);
                     bw.Write(len); bw.Write(Encoding.ASCII.GetBytes(name.PadRight(64)[..64])); bw.Write(node.Size); bw.Write(v.Data, o, len); n++;
                 }
                 foreach (var c in node.Children) W(c);

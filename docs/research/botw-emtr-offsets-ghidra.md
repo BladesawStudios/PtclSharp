@@ -192,3 +192,145 @@ Every field below is proven by decompiled instructions in the BotW Switch ARM64 
 | `0xA68`–`0xA77` | 16 | `bytes` | `tex1_sampler_cfg` | Slot 1 sampler config & UV animation modes (`0x7100adb8f4:L101`). |
 | `0xA78`–`0xA87` | 16 | `bytes` | `tex2_sampler_cfg` | Slot 2 sampler config & UV animation modes (`0x7100adb8f4:L107`). |
 | **`0xA88`** | — | — | **Struct End** | End of fixed data struct (`0xA88` bytes total). |
+
+## Pair-match triage (generated)
+
+Output of `tools/exe/pairmatch.py` on the TotK map: per paired field, reader-site counts and the best context-shape score (1.00 = same compiled shape). Supporting evidence only; not proof. Zero BotW sites means the field is only read via a bulk copy (GPU uniform block) or not at all, and needs manual work.
+
+```
+emitter_name                           botw+0x10 totk+0x10 sites 1451/1072 best 1.00 botw@adc5a4 totk@df14
+color0_key_count                       botw+0x60 totk+0x80 sites 223/238 best 1.00 botw@ae5b74 totk@2139c
+alpha0_key_count                       botw+0x64 totk+0x84 sites 194/194 best 0.87 botw@ad9f7c totk@246f4
+color1_key_count                       botw+0x68 totk+0x88 sites 187/206 best 0.87 botw@aece70 totk@2e100
+alpha1_key_count                       botw+0x6C totk+0x8C sites 170/171 best 0.87 botw@ad4078 totk@1275c
+scale_key_count                        botw+0x70 totk+0x90 sites 148/179 best 0.87 botw@ad8c00 totk@7948
+track5_key_count                       botw+0x74 totk+0x94 sites 140/163 best 0.87 botw@ad8c00 totk@7948
+stationary_diff_fallback_selector      botw+0x744 totk+0xEC sites   2/ 52 best 0.40 botw@ad6984 totk@1ca8
+particle_color_rgb_scale               botw+0x3B0 totk+0x680 sites   8/  3 best 0.27 botw@aca4c8 totk@98bc
+kf_color0                              botw+0x3C0 totk+0x690 sites   3/  1 best 0.60 botw@adb96c totk@d958
+kf_alpha0                              botw+0x440 totk+0x710 sites   4/  1 best 1.00 botw@adb990 totk@d96c
+kf_color1                              botw+0x4C0 totk+0x790 sites   3/  1 best 0.73 botw@adb9a4 totk@d988
+kf_alpha1                              botw+0x540 totk+0x810 sites   4/  1 best 0.67 botw@adb9c8 totk@d99c
+kf_scale                               botw+0x600 totk+0x8D0 sites   3/  3 best 0.40 botw@adbf3c totk@27f94
+kf_track5                              botw+0x680 totk+0x950 sites   8/  4 best 0.33 botw@ad88dc totk@274e4
+sim_flags                              botw+0x748 totk+0xCA0 sites   0/  1 best 0.00
+particle_sort_mode_index               botw+0x749 totk+0xCA1 sites   0/  2 best 0.00
+emitter_calc_type                      botw+0x752 totk+0xCA2 sites  40/  3 best 0.47 botw@aca148 totk@1d70
+velocity_coord                         botw+0x74B totk+0xCA3 sites   0/ 38 best 0.00
+seed_source                            botw+0x757 totk+0xCA4 sites   2/  1 best 0.67 botw@ad59a4 totk@1df4
+fade_in_curve                          botw+0x75B totk+0xCA9 sites   4/  3 best 0.93 botw@ad795c totk@103b4
+fade_in_scale                          botw+0x75C totk+0xCAA sites   8/  3 best 0.93 botw@ad7964 totk@103bc
+fade_out_curve                         botw+0x755 totk+0xCAB sites   7/  3 best 0.93 botw@ad79c4 totk@1041c
+fade_out_scale                         botw+0x756 totk+0xCAC sites  12/  3 best 0.93 botw@ad79cc totk@10424
+fixed_seed                             botw+0x760 totk+0xCB0 sites   1/  1 best 0.80 botw@ad59ec totk@1e38
+fade_out_time                          botw+0x768 totk+0xCB8 sites   2/  2 best 1.00 botw@ad79d4 totk@1042c
+fade_in_time                           botw+0x76C totk+0xCBC sites   1/  1 best 1.00 botw@ad797c totk@103d4
+emitter_trans_xyz                      botw+0x770 totk+0xCC0 sites   4/  8 best 0.60 botw@ad61fc totk@2cd0
+emitter_trans_rnd                      botw+0x77C totk+0xCCC sites   2/  4 best 0.53 botw@ad3ef0 totk@f640
+emitter_rot_xyz                        botw+0x788 totk+0xCD8 sites   3/  3 best 0.67 botw@adc238 totk@da78
+emitter_rot_rnd                        botw+0x794 totk+0xCE4 sites   1/  1 best 0.33 botw@ad659c totk@3880
+emitter_scale_xyz                      botw+0x798 totk+0xCF0 sites   1/  3 best 0.47 botw@ad65a8 totk@2cb0
+emitter_color0_rgb                     botw+0x7A4 totk+0xCFC sites   4/  2 best 0.67 botw@ad61d0 totk@2cdc
+emitter_color0_alpha                   botw+0x7B0 totk+0xD08 sites   1/  2 best 0.80 botw@ad6210 totk@2d40
+emitter_color1_rgb                     botw+0x7B4 totk+0xD0C sites   1/  2 best 0.73 botw@ad6218 totk@2cf4
+emitter_color1_alpha                   botw+0x7C0 totk+0xD18 sites   1/  1 best 0.87 botw@ad622c totk@2d48
+child_pre_draw                         botw+0x7E1 totk+0xD39 sites   2/  1 best 0.60 botw@aca6e8 totk@a0b0
+emit_loop_mode                         botw+0x7F0 totk+0xD48 sites   8/  6 best 0.60 botw@ae4798 totk@1ef04
+gravity_coord                          botw+0x7F1 totk+0xD49 sites   2/  4 best 0.80 botw@adc8ac totk@e38c
+emit_dist_enable                       botw+0x7F2 totk+0xD4A sites   3/  3 best 0.53 botw@ad635c totk@e2f8
+emit_start_delay                       botw+0x7F4 totk+0xD4C sites   1/  2 best 0.53 botw@ad7418 totk@ff10
+child_emit_timing                      botw+0x7F8 totk+0xD50 sites   2/  2 best 0.47 botw@ad8228 totk@1118c
+emit_duration                          botw+0x7FC totk+0xD54 sites   5/  7 best 0.47 botw@ad7414 totk@ff14
+emit_rate                              botw+0x800 totk+0xD58 sites  13/  2 best 0.73 botw@adc1f0 totk@da1c
+emit_rate_random_percent               botw+0x804 totk+0xD5C sites   5/  2 best 0.47 botw@acdd94 totk@f790
+emit_interval                          botw+0x808 totk+0xD60 sites   6/  7 best 0.53 botw@ae70d0 totk@23110
+emit_interval_random                   botw+0x80C totk+0xD64 sites   1/  1 best 0.47 botw@ad69c0 totk@3e14
+gravity_xyz                            botw+0x818 totk+0xD70 sites   3/  1 best 0.80 botw@ae0f04 totk@18354
+shape_type                             botw+0x838 totk+0xD90 sites   8/  8 best 0.87 botw@ad64e0 totk@23190
+shape_angle_mode                       botw+0x839 totk+0xD91 sites   7/  4 best 0.60 botw@add250 totk@13b44
+shape_rot_mode                         botw+0x83A totk+0xD92 sites   6/  6 best 0.60 botw@ade8fc totk@13ebc
+shape_rot_variant                      botw+0x83E totk+0xD95 sites   4/  3 best 0.73 botw@ade104 totk@14564
+shape_angle_b                          botw+0x840 totk+0xD98 sites   6/  2 best 0.60 botw@add24c totk@13914
+shape_angle_c                          botw+0x844 totk+0xD9C sites   6/  3 best 0.73 botw@ade008 totk@14470
+shape_angle_d                          botw+0x848 totk+0xDA0 sites   5/  4 best 0.53 botw@add43c totk@13918
+shape_fill_ratio                       botw+0x850 totk+0xDA8 sites   3/  3 best 0.73 botw@add8b0 totk@13cb8
+line_center_bias                       botw+0x854 totk+0xDAC sites   2/  2 best 0.67 botw@adf2fc totk@15338
+line_length                            botw+0x858 totk+0xDB0 sites   2/  2 best 0.80 botw@adf344 totk@15390
+shape_radius_xyz                       botw+0x85C totk+0xDB4 sites  10/  8 best 0.73 botw@adf480 totk@154d8
+mesh_primitive_idx                     botw+0x878 totk+0xDD0 sites   1/  1 best 0.67 botw@ae3ed8 totk@1e674
+shape_divisions                        botw+0x880 totk+0xDD8 sites   4/  2 best 0.67 botw@ad652c totk@3700
+blend_target_enable                    botw+0x898 totk+0xDE8 sites   0/  1 best 0.00
+depth_stencil_mode_index               botw+0x89A totk+0xDEA sites   0/  1 best 0.00
+depth_sort_ascending                   botw+0x89B totk+0xDEB sites   1/  2 best 0.60 botw@acdcfc totk@480c
+blend_mode_index                       botw+0x89E totk+0xDEE sites   0/  1 best 0.00
+cull_mode_index                        botw+0x89F totk+0xDEF sites   0/  1 best 0.00
+emit_infinite_flag                     botw+0x8A8 totk+0xDF8 sites  14/  6 best 0.87 botw@ae477c totk@1eef0
+is_trimming_prim                       botw+0x8A9 totk+0xDF9 sites   9/  3 best 0.80 botw@ae3efc totk@1e6a4
+shader_mode_index_DFC                  botw+0x8AC totk+0xDFC sites  10/  3 best 0.73 botw@adcba0 totk@e778
+particle_lifespan                      botw+0x8B8 totk+0xE08 sites  16/  2 best 0.40 botw@ad6278 totk@dcd4
+particle_lifespan_random_percent       botw+0x8BC totk+0xE0C sites   4/  2 best 0.47 botw@adadc8 totk@1246c
+particle_attribute_w_random_amplitude  botw+0x8C0 totk+0xE10 sites   6/  1 best 0.53 botw@adad70 totk@12414
+g3d_primitive_idx                      botw+0x8C8 totk+0xE18 sites   6/  2 best 0.40 botw@adb800 totk@b6ec
+trim_primitive_idx                     botw+0x8D0 totk+0xE20 sites   5/  1 best 0.87 botw@ae3f04 totk@1e6ac
+loop_color0_enable                     botw+0x8D8 totk+0xE28 sites   3/  3 best 0.73 botw@ae1ab8 totk@18e60
+loop_alpha0_enable                     botw+0x8D9 totk+0xE29 sites   3/  3 best 0.80 botw@adc074 totk@d83c
+loop_color1_enable                     botw+0x8DA totk+0xE2A sites   3/  3 best 0.80 botw@adc0a4 totk@d870
+loop_alpha1_enable                     botw+0x8DB totk+0xE2B sites   3/  3 best 0.87 botw@adc0d4 totk@d89c
+loop_scale_enable                      botw+0x8DC totk+0xE2C sites   3/  2 best 0.87 botw@adc104 totk@d8d0
+loop_color0_random_phase               botw+0x8DD totk+0xE2D sites   3/  3 best 0.67 botw@adc05c totk@d828
+loop_alpha0_random_phase               botw+0x8DE totk+0xE2E sites   3/  3 best 0.80 botw@adc090 totk@d858
+loop_color1_random_phase               botw+0x8DF totk+0xE2F sites   3/  3 best 0.80 botw@adc0c0 totk@d888
+loop_alpha1_random_phase               botw+0x8E0 totk+0xE30 sites   2/  3 best 0.80 botw@adc0f0 totk@d8b8
+loop_scale_random_phase                botw+0x8E1 totk+0xE31 sites   2/  2 best 0.93 botw@adc120 totk@d8e8
+loop_scale_period_i32                  botw+0x8F4 totk+0xE3C sites   2/  2 best 0.93 botw@adc110 totk@d8d8
+shader_idx_normal                      botw+0x914 totk+0xE5C sites   1/  3 best 0.47 botw@adb83c totk@27644
+shader_idx_pass1                       botw+0x91C totk+0xE60 sites   1/  1 best 0.40 botw@adb850 totk@b878
+shader_idx_pass2                       botw+0x924 totk+0xE64 sites   1/  1 best 0.53 botw@adb874 totk@b8b4
+compute_shader0                        botw+0x918 totk+0xE68 sites   1/  1 best 0.40 botw@adb894 totk@b99c
+emission_direction_spread_degrees      botw+0x970 totk+0xF10 sites   1/  2 best 0.53 botw@ad62b4 totk@12930
+emission_tangent_amount                botw+0x974 totk+0xF14 sites   0/  3 best 0.00
+emission_direction_random_x            botw+0x978 totk+0xF18 sites   0/  1 best 0.00
+emission_direction_random_y            botw+0x97C totk+0xF1C sites   1/  1 best 0.33 botw@ada7a4 totk@13654
+emission_direction_random_z            botw+0x980 totk+0xF20 sites   2/  1 best 0.40 botw@acbbcc totk@13670
+initial_speed_random_percent           botw+0x984 totk+0xF24 sites   3/  1 best 0.53 botw@ada460 totk@12924
+emitter_motion_inherit_scale           botw+0x988 totk+0xF28 sites   2/  1 best 0.27 botw@adabdc totk@136a8
+emitter_motion_inherit_max             botw+0x98C totk+0xF2C sites   2/  1 best 0.27 botw@adac00 totk@136b0
+color0_mode                            botw+0x9A4 totk+0xF44 sites   3/  5 best 1.00 botw@ae1a9c totk@18e44
+color1_mode                            botw+0x9A5 totk+0xF45 sites   3/  6 best 1.00 botw@ae1ef8 totk@19774
+alpha0_mode                            botw+0x9A6 totk+0xF46 sites   2/  4 best 0.87 botw@adb984 totk@d960
+alpha1_mode                            botw+0x9A7 totk+0xF47 sites   2/  4 best 0.87 botw@ae1f70 totk@19830
+color0_const_rgb                       botw+0x9A8 totk+0xF48 sites   1/  3 best 0.60 botw@adb968 totk@d954
+alpha0_const                           botw+0x9B4 totk+0xF54 sites   1/  1 best 1.00 botw@adb98c totk@d968
+color1_const_rgb                       botw+0x9B8 totk+0xF58 sites   1/  3 best 0.80 botw@adb9a0 totk@d984
+alpha1_const                           botw+0x9C4 totk+0xF64 sites   1/  1 best 0.73 botw@adb9c4 totk@d998
+particle_scale_xyz                     botw+0x9C8 totk+0xF68 sites   1/  1 best 0.73 botw@ad6248 totk@2d0c
+particle_scale_rnd                     botw+0x9D4 totk+0xF74 sites   1/  2 best 0.53 botw@adac78 totk@12258
+waveform_mode_packed                   botw+0x9EF totk+0xF8F sites   4/  6 best 1.00 botw@ae1640 totk@189d0
+tex_slot0_guid                         botw+0x9F8 totk+0xF98 sites   4/  4 best 0.60 botw@adb90c totk@bc08
+tex_slot1_guid                         botw+0xA18 totk+0xFB0 sites   3/  4 best 0.60 botw@adb928 totk@bc30
+tex_slot2_guid                         botw+0xA38 totk+0xFC8 sites   4/  5 best 0.53 botw@adb944 totk@bc58
+tex0_mode_index                        botw+0xA58 totk+0x1028 sites   4/  0 best 0.00
+tex0_uv_scroll                         botw+0xA59 totk+0x1029 sites   1/  0 best 0.00
+tex0_uv_rotate                         botw+0xA5A totk+0x102A sites   1/  0 best 0.00
+tex0_uv_scale                          botw+0xA5B totk+0x102B sites   1/  0 best 0.00
+tex0_uv_domain_scale_mode              botw+0xA5C totk+0x102C sites   1/  0 best 0.00
+tex0_shader_flag0                      botw+0xA5D totk+0x102D sites   1/  0 best 0.00
+tex0_shader_flag1                      botw+0xA5E totk+0x102E sites   1/  0 best 0.00
+tex0_shader_flag2                      botw+0xA5F totk+0x102F sites   1/  0 best 0.00
+tex1_mode_index                        botw+0xA68 totk+0x1038 sites   4/  0 best 0.00
+tex1_uv_scroll                         botw+0xA69 totk+0x1039 sites   1/  0 best 0.00
+tex1_uv_rotate                         botw+0xA6A totk+0x103A sites   1/  0 best 0.00
+tex1_uv_scale                          botw+0xA6B totk+0x103B sites   1/  0 best 0.00
+tex1_uv_domain_scale_mode              botw+0xA6C totk+0x103C sites   1/  0 best 0.00
+tex1_shader_flag0                      botw+0xA6D totk+0x103D sites   1/  0 best 0.00
+tex1_shader_flag1                      botw+0xA6E totk+0x103E sites   1/  0 best 0.00
+tex1_shader_flag2                      botw+0xA6F totk+0x103F sites   1/  0 best 0.00
+tex2_mode_index                        botw+0xA78 totk+0x1048 sites   4/  0 best 0.00
+tex2_uv_scroll                         botw+0xA79 totk+0x1049 sites   1/  0 best 0.00
+tex2_uv_rotate                         botw+0xA7A totk+0x104A sites   1/  0 best 0.00
+tex2_uv_scale                          botw+0xA7B totk+0x104B sites   1/  0 best 0.00
+tex2_uv_domain_scale_mode              botw+0xA7C totk+0x104C sites   1/  0 best 0.00
+tex2_shader_flag0                      botw+0xA7D totk+0x104D sites   1/  0 best 0.00
+tex2_shader_flag1                      botw+0xA7E totk+0x104E sites   1/  0 best 0.00
+tex2_shader_flag2                      botw+0xA7F totk+0x104F sites   1/  0 best 0.00
+```
