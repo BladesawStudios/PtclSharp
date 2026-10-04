@@ -55,7 +55,13 @@ public class LayoutTests
         Assert.Equal(10, emitter.KeyframeTrackCount);
         Assert.DoesNotContain(emitter.Fields, f => f.Status == FieldStatus.Paired);
         Assert.All(emitter.Fields, f =>
-            Assert.Equal(f.Name.StartsWith("unverified", StringComparison.Ordinal), f.Status == FieldStatus.Unverified));
+        {
+            Assert.Equal(f.Name.StartsWith("unverified", StringComparison.Ordinal), f.Status == FieldStatus.Unverified);
+            Assert.Equal(f.Name.StartsWith("unused", StringComparison.Ordinal), f.Status == FieldStatus.Unused);
+        });
+        // Unused bytes are never described as having a consumer, and guesses never sit on proven-unused fields.
+        Assert.All(emitter.Fields.Where(f => f.IsUnused), f => Assert.Null(f.Hypothesis));
+        Assert.Contains(emitter.Fields, f => f.Hypothesis is not null);
     }
 
     [Fact]
@@ -65,6 +71,15 @@ public class LayoutTests
         Assert.DoesNotContain(emitter.Fields, f => f.Status == FieldStatus.Confirmed);
         Assert.Contains(emitter.Fields, f => f.Status == FieldStatus.Paired);
         Assert.Null(emitter.KeyframeTrackCount);
+    }
+
+    [Fact]
+    public void ConfirmedByteCountsAreReportedPerStatus()
+    {
+        EmitterLayout emitter = PtclLayouts.For(PtclVersion.TotK_NintendoWareVfx2_15_3_1).Emitter;
+        int total = Enum.GetValues<FieldStatus>().Sum(emitter.BytesWithStatus);
+        Assert.Equal(emitter.Size, total); // no gaps, no overlaps: every byte has exactly one status
+        Assert.True(emitter.BytesWithStatus(FieldStatus.Confirmed) > emitter.BytesWithStatus(FieldStatus.Unverified));
     }
 
     [Fact]

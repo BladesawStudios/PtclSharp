@@ -1,11 +1,15 @@
 """Generates src/PtclSharp/Layout/{Totk,Botw}EmitterFields.g.cs from the research docs.
 usage: python gen_layouts.py <docs/research dir> <src/PtclSharp/Layout dir>
-Status rules: TotK rows named unverified_* are Unverified, every other row is Confirmed (as claimed by the doc).
+Status rules: TotK rows named unverified_* are Unverified, unused_* are Unused, every other row is Confirmed (as claimed by the doc).
 BotW rows are Paired when the same field name exists in the TotK map, otherwise Unverified (BotW has not been re-verified)."""
 import re,sys,os
 from parse_maps import parse,elem
 ESIZE={'U8':1,'I8':1,'U16':2,'I16':2,'U32':4,'I32':4,'U64':8,'I64':8,'F32':4}
+def guess_of(ev):
+    m=re.search(r'\*\*Guess:\*\*\s*(.*?)(?=\s*\*\*Audit:\*\*|$)',ev)
+    return m.group(1).replace('`','').strip() if m else None
 def first_sentence(ev,limit=230):
+    ev=re.sub(r'\s*\*\*Guess:\*\*.*$','',ev)
     ev=re.sub(r'\s*\*\*Audit:\*\*.*$','',ev)
     ev=ev.replace('`','').strip()
     m=re.match(r'(.+?[.!?])(\s|$)',ev)
@@ -32,16 +36,18 @@ def gen(rows,game,statusfn,cls):
         elif t=='Bytes': c=size if c is None else c
         elif t=='String': c=size
         st=statusfn(r)
-        out.append(f'        new({cs(r["name"])}, 0x{r["offset"]:X}, FieldType.{t}, {c}, FieldStatus.{st}, {cs(first_sentence(r["evidence"]))}),')
+        g=guess_of(r["evidence"])
+        gs=f', {cs(g)}' if g else ''
+        out.append(f'        new({cs(r["name"])}, 0x{r["offset"]:X}, FieldType.{t}, {c}, FieldStatus.{st}, {cs(first_sentence(r["evidence"]))}{gs}),')
     out.append('    ];\n}')
     return '\n'.join(out)+'\n',warn
 if __name__=='__main__':
     docs,outdir=sys.argv[1],sys.argv[2]
     totk=parse(os.path.join(docs,'totk-emtr-offsets-ghidra.md'),'totk')
     botw=parse(os.path.join(docs,'botw-emtr-offsets-ghidra.md'),'botw')
-    tnames={r['name'] for r in totk if not r['name'].startswith('unverified')}
+    tnames={r['name'] for r in totk if not r['name'].startswith(('unverified','unused'))}
     os.makedirs(outdir,exist_ok=True)
-    s,w=gen(totk,'totk',lambda r:'Unverified' if r['name'].startswith('unverified') else 'Confirmed','TotkEmitterFields')
+    s,w=gen(totk,'totk',lambda r:'Unverified' if r['name'].startswith('unverified') else ('Unused' if r['name'].startswith('unused') else 'Confirmed'),'TotkEmitterFields')
     open(os.path.join(outdir,'TotkEmitterFields.g.cs'),'w',encoding='utf-8',newline='\n').write(s); print('totk',len(totk),'size mismatches',w)
     s,w=gen(botw,'botw',lambda r:'Paired' if r['name'] in tnames else 'Unverified','BotwEmitterFields')
     open(os.path.join(outdir,'BotwEmitterFields.g.cs'),'w',encoding='utf-8',newline='\n').write(s); print('botw',len(botw),'size mismatches',w)

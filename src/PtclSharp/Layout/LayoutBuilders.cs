@@ -18,6 +18,7 @@ internal static class LayoutBuilders
     internal const FieldStatus C = FieldStatus.Confirmed;
     internal const FieldStatus P = FieldStatus.Paired;
     internal const FieldStatus V = FieldStatus.Unverified;
+    internal const FieldStatus U = FieldStatus.Unused;
 
     /// <summary>
     /// The shared 8-key animation sub-block used by the field chunks (0x98 bytes at <paramref name="at"/>):

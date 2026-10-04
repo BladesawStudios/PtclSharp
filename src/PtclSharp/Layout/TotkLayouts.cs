@@ -53,9 +53,9 @@ internal static class TotkLayouts
                 U8("enabled", 0x00, C, "Emitter::Calculate skips a lane unless this byte is nonzero."),
                 U8("loop", 0x01, C, "Time is reduced with fmodf by the last key time when nonzero."),
                 U8("interpolation", 0x02, C, "0 linear, 1 hold the lower key."),
-                U8("unverified_03", 0x03, V, "Not read; always 0 in the corpus."),
+                U8("unused_03", 0x03, U, "Not read by the lane loop or the evaluator; always 0 in the corpus."),
                 U32("key_count", 0x04, C, Ea),
-                U32("unverified_08", 0x08, V, "Not read; always 0 in the corpus.")
+                U32("unused_08", 0x08, U, "Not read by the lane loop or the evaluator; always 0 in the corpus.")
             ],
             new RepeatingGroup("keys", 0x0C, 0x10, "key_count",
             [
@@ -71,13 +71,13 @@ internal static class TotkLayouts
                 U8("enable_unified_phase", 0x00, C, Fr),
                 U8("enable_detailed_option", 0x01, C, Fr),
                 U8("enable_air_resist", 0x02, C, Fr),
-                U8("unverified_03", 0x03, V, "Not read; always 0 in the corpus."),
+                U8("unused_03", 0x03, U, "Not read (taint trace of every FRND consumer); always 0 in the corpus."),
                 F32("random_vel", 0x04, C, Fr, count: 3),
                 I32("blank", 0x10, C, Fr),
                 F32("unified_phase_speed", 0x14, C, Fr),
                 F32("unified_phase_distribution", 0x18, C, Fr),
-                F32("wave_coefficient", 0x1C, C, "RandFunc 0x710001AFF0: multiplier of each sine term.", count: 4),
-                F32("wave_divisor", 0x2C, C, "RandFunc 0x710001AFF0: divisor of the phase in each sine term.", count: 4)
+                F32("wave_param", 0x1C, C, "RandFunc 0x710001AFF0 multiplier; copied to field buffer randomParam2 (SDK waveParam0..3).", count: 4),
+                F32("wave_param_hz_rate", 0x2C, C, "RandFunc 0x710001AFF0 phase divisor; copied to field buffer randomParam1 (SDK waveParamHzRate0..3).", count: 4)
             }.Concat(Anim8Key("random_vel_anim", 0x3C, "Calculate8KeyAnim 0x7100016120.")));
 
         yield return new ChunkLayout("FRN1", 0xA8,
@@ -130,6 +130,19 @@ internal static class TotkLayouts
                 F32("ratio", 0x10, C, Cov)
             }.Concat(Anim8Key("ratio_anim", 0x14, Cov)));
 
+        yield return new ChunkLayout("FCSF", 0x44,
+        [
+            U32("custom_field_type", 0x00, C, "UpdateParams 0x710000DA64 copies it to EMTR data +0x7C; consumed outside nn::vfx2."),
+            F32("value", 0x04, C, "UpdateParams 0x710000E20C..E2CC copies 16 floats to the field buffer (SDK customFieldParam value0..7).", count: 16)
+        ]);
+
+        yield return new ChunkLayout("FGWD", 0x0C,
+        [
+            F32("unverified_00", 0x00, V, "UpdateParams 0x710000E1E4 copies to field buffer 0x150; purpose unproven; no shipped chunk."),
+            F32("unverified_04", 0x04, V, "Copied to field buffer 0x154; purpose unproven."),
+            I32("unverified_08", 0x08, V, "Converted with scvtf into field buffer 0x158; purpose unproven.")
+        ]);
+
         const string Pad = "CalculateParticleBehaviorFPAD 0x7100017D34 (executable only; no shipped file has this chunk).";
         yield return new ChunkLayout("FPAD", 0xA8,
             new[]
@@ -144,14 +157,18 @@ internal static class TotkLayouts
             U8("interpolation", 0x00, C, Cln),
             U8("base_random", 0x01, C, Cln),
             U8("world_coordinate", 0x02, C, Cln),
-            F32("influence", 0x04, C, Cln, count: 3),
-            F32("speed", 0x10, C, Cln, count: 3),
+            F32("speed", 0x04, C, Cln + " Multiplied by emitter time.", count: 3),
+            F32("influence", 0x10, C, Cln + " Multiplies the sampled curl vector.", count: 3),
             F32("scale", 0x1C, C, Cln),
             F32("base", 0x20, C, Cln)
         ]);
 
         yield return new ChunkLayout("EP01", 0x1C,
         [
+            U8("calc_type", 0x00, C, "UpdateStripePolygon 0x710002B334: (v-1)<=1 test, as SDK calcType."),
+            U8("option", 0x02, C, "Draw 0x710002DFD4: ==1 draws the cross mesh (SDK StripeMeshType_CrossStripe)."),
+            I32("num_divide", 0x04, C, "AllocStripeSystemVertexBuffer 0x710002ADE0; zero test at 0x710002AF60."),
+            U8("connection_type", 0x08, C, "UpdateStripePolygon 0x710002AF5C: 1 and 2 add a spine vertex (SDK ConnectToEmitter/Loop)."),
             F32("head_alpha", 0x0C, C, "ConnectionStripeSystem::InitializeStripeEmitter 0x710002AD44."),
             F32("tail_alpha", 0x10, C, "ConnectionStripeSystem::InitializeStripeEmitter 0x710002AD4C.")
         ]);
@@ -174,13 +191,22 @@ internal static class TotkLayouts
         const string Ep3 = "SuperStripeSystem::InitializeStripeEmitter 0x7100023458.";
         yield return new ChunkLayout("EP03", 0x60,
         [
-            U8("unverified_02", 0x02, V, "Same external-buffer mode test as EP02 +0x02."),
+            U8("calc_type", 0x00, C, "Stripe update 0x71000244F0: ==3 and (v-1)<=1 tests, as SDK calcType."),
+            U8("emitter_follow", 0x01, C, "Gates the ParticleCalculateArgImpl getter branch at 0x71000247A8."),
+            U8("unverified_02", 0x02, V, "Same external-buffer mode test as EP02 +0x02; the draw path also compares it with 1."),
             F32("num_history", 0x0C, C, Ep3),
             F32("head_alpha", 0x14, C, Ep3),
             F32("tail_alpha", 0x18, C, Ep3),
             I32("num_divide", 0x1C, C, Ep3),
+            F32("history_air_resist", 0x28, C, "UpdateHistory 0x7100024720: 1.0 - value."),
+            F32("history_acceleration", 0x2C, C, "0x7100024968: three floats scaled by the step ratio.", count: 3),
+            F32("history_vec_regulation", 0x38, C, "0x71000249D0: multiplies history_init_vec_rotate_cycle."),
+            F32("unverified_3C", 0x3C, V, "Loaded with +0x38; likely SDK historyVecInitSpeed, use not traced."),
+            F32("history_init_vec_rotate_cycle", 0x40, C, "0x71000249D8..0x71000249EC.", count: 3),
             F32("head_scale", 0x50, C, Ep3),
-            F32("tail_scale", 0x54, C, Ep3)
+            F32("tail_scale", 0x54, C, Ep3),
+            I32("static_param_x", 0x58, C, "MakeConstantBufferObject 0x7100026A2C: scvtf into the stripe constant buffer."),
+            F32("static_param_y", 0x5C, C, "MakeConstantBufferObject 0x71000269E8.")
         ]);
 
         const string Ep4 = "AreaLoopSystem::Draw 0x710002E27C.";

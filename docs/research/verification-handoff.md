@@ -191,7 +191,7 @@ This section supersedes the "Highest-value remaining TotK work" list in section 
 ### What is now verified (summary)
 
 - Container: file header, node header, per-kind `size` meaning and alignment, nested child emitters, `GRSN` children, `G3PR`/`G3NT`, `PRMA`/`PRIM`, `ESET` data (see section 1D of the map).
-- Attribute chunks: `EAxx` schema (enabled/loop/interpolation/key count/keys), field chunks `FRND FRN1 FMAG FSPN FCOL FCOV FPAD FCLN` with the shared `Anim8Key` block, stripe/area-loop plugin chunks (partially, see below), `CSDP` (raw custom-shader uniform block), `CADP`/`CUDP`/`FCSF`/`FGWD` (opaque, passed to callbacks).
+- Attribute chunks: `EAxx` schema (enabled/loop/interpolation/key count/keys), field chunks `FRND FRN1 FMAG FSPN FCOL FCOV FPAD FCLN` with the shared `Anim8Key` block, stripe/area-loop plugin chunks (partially, see below), `CSDP` (raw custom-shader uniform block), `FCSF` (type word plus 16 floats copied to the GPU field buffer), `CADP`/`CUDP` (opaque, passed to callbacks), `FGWD` (3 words copied to the field buffer; purpose unproven).
 - EMTR: new confirmed rows `CA5, CA8, CB4, D3A, D3B, D68, D94, DDC, E74, EF8`; every previously "unverified" row and every previously unlisted byte range now carries an explicit **Audit** (CPU scan, GPU read set, corpus statistics); GPU-only fields have exact arithmetic roles but stay `unverified_*` unless the role is unambiguous (`0x100..0x108` template-vertex bias, `0x8B8` discard threshold).
 - `kf_track5` has the same shape as the SDK `shaderAnim` track (identical padding arithmetic); tracks 5 to 8 are read by the vertex shader, track 9 by nothing.
 
@@ -199,7 +199,7 @@ This section supersedes the "Highest-value remaining TotK work" list in section 
 
 - Names for GPU-only fields: `0xBD0..0xC0F` is a polymorphic shader parameter block; `0x890..0x8AC` ramp-like pairs; `0xC50/0xC54`; `0x10C`, `0x130/0x134`, `0xF4`, `0x8B0`, `0x8C0`, `0x8C4`. Resolving these needs understanding each shader feature (variant selection by `ShaderFlag::Initialize` words `0x70..0x78`), not another binary scan.
 - Stripe chunks: only the offsets whose arithmetic was traced are named (`EP01 +0x0C/+0x10`; `EP02 +4/+8/+0x10/+0x14/+0x20/+0x24`; `EP03 +0xC/+0x14/+0x18/+0x1C/+0x50/+0x54`; `EP04` fully). The remaining bytes need the stripe-calculation functions (`CalculateDelayedStripe`, `UpdateHistory`, `UpdateStripePolygon`) traced field by field.
-- `CADP`/`CSDP`/`FCSF`/`FGWD` member layouts are defined by game code and shader reflection, not by `nn::vfx2`.
+- `CADP`/`CSDP`/`CUDP` member layouts are defined by game code and shader reflection, not by `nn::vfx2`; `FCSF`'s `custom_field_type` and `FGWD`'s three words are consumed outside what was traced.
 - `E14` (`0xE14`, packed flags), `E78..E94`, `D1C..D27`, `DE9`, `DEC`, `DED`, `DF0`, and the texture-slot record tails (`FA0..FAF` etc.) have **no reader in `nn::vfx2`**; the texture record tails are passed with the GUID to the texture-resolver interface in game code.
 - `ESFT` and `GRTF` nodes never occur in shipped files (their payloads are unmapped); `FPAD` and `FGWD` chunks never occur either, so `FPAD`'s layout comes from the executable only and `FGWD` is opaque.
 - Rows verified in earlier sessions were not re-verified here. The 5-versus-6 track discrepancy, `0x8D8..0x8F4`, and all `Paired` rows are BotW tasks.
@@ -217,3 +217,14 @@ All 1,592 shipped files now load. There is still no automated test project; the 
 - `ToolSearch` is needed to load the Ghidra MCP tools. Very large decompiles are saved to a file instead of returned; grep that file. Avoid decompiling matrix-heavy functions (`AreaLoopSystem::Draw`) just to read a few offsets: a register-access summary (`tools/exe/accs.py`) plus the SDK source is faster.
 - The open Ghidra program matched both `Exefs121/main` and `Exefs111/main111` at the `nn::vfx2` addresses; analyses here used `Exefs121/main`.
 - When switching to BotW, redo the same three steps first: the uniform-block copy size/source (`FUN_7100adb8f4` copies `0x750` bytes, i.e. data `[0, 0x750)`), a corpus of EMTR blocks, and a shader-use union. BotW sets are Yaz0-compressed (see `src/PtclSharp/Compression.cs` and `Container.ReadSesetlist`), so the corpus extractor needs a BotW loader before it can be reused.
+
+### Update (later on 2026-10-04)
+
+- New tools: `tools/exe/taint.py` (interprocedural pointer-taint trace; used to prove which bytes of the stripe and plugin payloads are read at all) and `tools/exe/overlays.py` (finds what `UpdateParams` copies from chunks into the **GPU field buffer**, a separate `0x160`-byte uniform buffer, not the EMTR block).
+- The field-buffer slot order is an independent check on chunk member names. It exposed one error in this pass: `FCLN +0x04` is the curl-noise **speed** and `+0x10` the **influence** (an earlier revision had them swapped; both the CPU dataflow and the GPU copy order agree on the corrected assignment).
+- `EP01` is fully traced (`calc_type`, `option`, `num_divide`, `connection_type`, alphas); `EP02`/`EP03` gained `calc_type`, `emitter_follow`, `dir_interpolate`, `history_air_resist`, `history_acceleration`, `history_vec_regulation`, `history_init_vec_rotate_cycle`, `static_param_x/y`. Bytes outside the traced read sets of the stripe payloads have **no reader in the engine**.
+- Layout tables and tests (`src/PtclSharp/Layout`, `tests/PtclSharp.Tests`) were added and are generated from the doc tables (`tools/gen/gen_layouts.py`).
+
+### TotK status definitions (agreed with the user, 2026-10-04)
+
+`Confirmed` = purpose proven in the executable. `Unused` = no consumer exists in the engine (CPU scan, GPU read set, corpus), so it can be copied or dropped; 62 EMTR ranges (about 440 bytes) are `Unused`. `Unverified` = something consumes it but its purpose is not proven; 24 EMTR ranges remain: the shader-only fields (with a separate **Guess:** note, stored as `FieldDef.Hypothesis`) and the texture-slot record tails passed to the game-side texture resolver. TotK is considered complete at this level; the next phase is BotW (the user must open the BotW program in Ghidra first).
