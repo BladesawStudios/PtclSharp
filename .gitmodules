@@ -1,0 +1,6 @@
+[submodule "lib/BymlSharp"]
+	path = lib/BymlSharp
+	url = https://github.com/BladesawStudios/BymlSharp
+[submodule "lib/ZstdSharp"]
+	path = lib/ZstdSharp
+	url = https://github.com/BladesawStudios/ZstdSharp
