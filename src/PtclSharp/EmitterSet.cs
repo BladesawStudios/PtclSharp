@@ -1,13 +1,14 @@
 namespace PtclSharp;
 
+/// <summary>Legacy byte-oriented wrapper. New code should use <see cref="PtclFile"/>.</summary>
 public class EmitterSet
 {
     public byte[] Data { get; set; } = Array.Empty<byte>();
 
-    public EmitterSet(Version version)
+    public EmitterSet(PtclVersion version)
     {
         Version = version;
     }
 
-    public Version Version { get; }
+    public PtclVersion Version { get; }
 }
