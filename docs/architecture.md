@@ -147,6 +147,17 @@ tree. Future writers should patch confirmed fields into a copy of those bytes.
 They should not reconstruct EMTR blocks from a partial semantic model, because
 that would erase unknown state.
 
+The current TotK executable-backed EMTR field ledger is in
+[`docs/research/totk-emtr-offsets-ghidra.md`](research/totk-emtr-offsets-ghidra.md).
+It deliberately records behavioral offsets before assigning authoring-facing
+names.
+
+The cross-version conversion design is in
+[`docs/conversion.md`](conversion.md), and the game-generation boundary is
+summarized in [`docs/format-differences.md`](format-differences.md). The BotW
+executable evidence ledger is in
+[`docs/research/botw-emtr-offsets-ghidra.md`](research/botw-emtr-offsets-ghidra.md).
+
 Cross-version conversion is a separate operation from serialization. In
 particular, `GRSN` shader resources are generation-specific, so a future
 converter needs an explicit TotK donor/resource policy. It must not imply that a
