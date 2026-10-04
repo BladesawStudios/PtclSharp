@@ -22,21 +22,129 @@ The VFXB resource-node header is a separate `0x20`-byte structure. `Resource::In
 * **Texture Slots**: Supports 6 texture slots (`0xF98`â€“`0x1028`, stride `0x18`), expanding beyond BotW's 3 slots (`0x9F8`â€“`0xA58`, stride `0x20`).
 * **Sampler Config**: Stride `0x10` starting at `0x1028` (6 slots total: `0x1028`â€“`0x1088`).
 
+### C. Emitter-animation lane bank
+
+`Emitter::Calculate @ 0x710000FEBC` iterates 14 animation lanes at live `Emitter + 0x3D8`, stride `0x0C`. `EmitterResource::ResolveBinaryData @ 0x710000EC80` binds the fourteen animation-attribute FourCCs to the same ordered pointer array at `EmitterResource + 0x348`, stride `8`. `Emitter::ResourceUpdate @ 0x7100002000` establishes the serialized base value for each lane:
+
+| Lane | Attribute | Live offset | Serialized base | Confirmed role |
+|---:|---|---:|---:|---|
+| 0 | `EAES` | `0x3D8` | `0xCF0` | Emitter scale XYZ |
+| 1 | `EAER` | `0x3E4` | `0xCD8` | Emitter rotation XYZ |
+| 2 | `EAET` | `0x3F0` | `0xCC0` | Emitter translation XYZ |
+| 3 | `EAC0` | `0x3FC` | `0xCFC` | Emitter Color0 RGB |
+| 4 | `EAC1` | `0x408` | `0xD0C` | Emitter Color1 RGB |
+| 5 | `EATR` | `0x414` | resource-normalized `0xD58` | Emission rate |
+| 6 | `EAPL` | `0x420` | resource-normalized `0xE08` | Particle lifetime |
+| 7 | `EAA0` | `0x42C` | `0xD08` | Emitter Color0 alpha |
+| 8 | `EAA1` | `0x438` | `0xD18` | Emitter Color1 alpha |
+| 9 | `EAOV` | `0x444` | `0xEFC` | All-directional initial speed |
+| 10 | `EADV` | `0x450` | `0xF00` | Designated-direction initial speed |
+| 11 | `EASL` | `0x45C` | `0xF68` | Particle scale XYZ |
+| 12 | `EASS` | `0x468` | `0xDC0` | Emitter-volume scale XYZ |
+| 13 | `EAGV` | `0x474` | `0xD6C` | Gravity scale |
+
+The FourCC names above are literal binary identifiers. The role column is based on the corresponding TotK arithmetic, not an expansion guessed from the letters.
+
+### D. VFXB container (file header, node header, node kinds)
+
+Corpus: all 1,530 loadable shipped TotK `.esetb` files (62 more fail PtclSharp's ESET-count validation, see the open items). Facts marked "executable" were traced in the TotK binary; "corpus" facts are observed regularities and are not proof of meaning.
+
+**File header (`0x40` bytes, `nn::util::BinaryFileHeader`).** `Resource::Verify` (`0x710001C660`) calls `BinaryFileHeader::IsSignatureValid`, requires `u8 [+0x09] == 4` (graphics API) and `u16 [+0x0A] == 0x33` (binary version 51), then `IsAlignmentValid`/`GetAlignment`. The rest follows the standard header layout and agrees with every corpus file:
+
+| Offset | Size | Field | Evidence |
+|:---:|:---:|:---|:---|
+| `+0x00` | 8 | `signature` = `"VFXB    "` | executable (`IsSignatureValid`) |
+| `+0x08` | 1 | `version_micro` | corpus: `0` |
+| `+0x09` | 1 | `graphics_api` | executable: must be `4` |
+| `+0x0A` | 2 | `binary_version` | executable: must be `0x33` (51) |
+| `+0x0C` | 2 | `byte_order_mark` | corpus: bytes `FF FE` (little endian) |
+| `+0x0E` | 1 | `alignment_shift` | corpus: `12` (alignment `0x1000`); consumed by `IsAlignmentValid`/`GetAlignment` |
+| `+0x0F` | 1 | `target_address_size` | corpus: `64` |
+| `+0x10` | 4 | `file_name_offset` | corpus: `0x20`; the zero-padded name string (`Kohga_Golem_Beam`) occupies `+0x20..+0x3F` |
+| `+0x14` | 2 | `flag` | corpus: `0` |
+| `+0x16` | 2 | `first_block_offset` | corpus: `0x40` |
+| `+0x18` | 4 | `relocation_table_offset` | corpus: `0` |
+| `+0x1C` | 4 | `file_size` | corpus: equals the decoded payload length |
+
+**Node header (`0x20` bytes).** `Resource::Trace` (`0x710001CCCC`), `TraceShaderBinaryArray` (`0x710001E0FC`), `TracePrimitiveArray` (`0x710001DB08`) and `EmitterResource::ResolveBinaryData` (`0x710000EC80`) read every field below except `+0x18` and `+0x1C`; they walk siblings with `+0x0C`, attribute chains with `+0x10`, children with `+0x08`, and data with `+0x14`. A relative offset of `0xFFFFFFFF` means "none".
+
+| Offset | Size | Field | Notes |
+|:---:|:---:|:---|:---|
+| `+0x00` | 4 | `fourcc` | ASCII, e.g. `EMTR`. |
+| `+0x04` | 4 | `size` | Meaning depends on kind, see below. |
+| `+0x08` | 4 | `child_rel` | Offset from this node to its first child node. |
+| `+0x0C` | 4 | `sibling_rel` | Offset to the next sibling; `0xFFFFFFFF` ends the chain. |
+| `+0x10` | 4 | `attribute_rel` | Offset to the first attribute chunk (EMTR only in practice). |
+| `+0x14` | 4 | `data_rel` | Offset to the node's data block. |
+| `+0x18` | 4 | `unverified_18` | Corpus: always `0`. Not read by the traced loaders. |
+| `+0x1C` | 4 | `child_count` | Corpus: number of children for `ESTA` (`ESET` count), `ESET` (`EMTR` count) and `PRMA` (`PRIM` count); `1` for `G3PR`; `0` otherwise. Not read by the traced loaders (they walk the sibling chain instead). |
+
+**Nested child emitters.** An `EMTR` can have child emitters: its header `child_rel` is positive and `+0x1C = 1` (corpus: `155` nested emitters in `58` files, maximum depth `1`, `+0x1C` always equals the number of nested `EMTR` nodes). The child `EMTR` starts right after the parent's own `size` bytes; the parent's `sibling_rel` then spans the parent plus its children. The executable matches this: `EmitterSet::Initialize` (`0x7100008EAC`) walks `EmitterResource + 0xB5` (child count) children at `EmitterResource + 0x270 + i * 8` and the next top-level emitter at `+0x2F0`. The `ESET` emitter count at data `+0x70` counts **all** emitters including children (corpus: `declared == total EMTR descendants` for all 6,716 sets in all 1,592 files). A reader that compares the declared count with only the direct `EMTR` children of the `ESET` rejects these 58 files (the current `PtclSharp.VfxbReader.ReadEmitterSets` does).
+
+**Child chains must be bounded by `child_count`.** The `G3PR` child (`G3NT`) is followed by a zero node in most files, but in 4 files (`DgnObj_FallDownPillar_A_01`, `Dm_GE_0005`, `Dm_OP_0015`, `FldObj_FenceWoodDamage_A_01`) the `G3NT` `sibling_rel` points at the start of the G3D data instead, so a reader that follows siblings until `0xFFFFFFFF` walks into non-node bytes. Read exactly `child_count` children (`G3PR +0x1C == 1`) rather than following the chain to its end. `PtclSharp.VfxbReader.ReadSiblingChain` currently follows the chain and fails on these 4 files.
+
+**Top-level order (corpus, every file):** `ESTA`, `PRMA`, `TRMA`, `G3PR`, `GRSN`. `Resource::Trace` also dispatches on `GRTF` (calls `TraceGfxResTextureFile`; the data of its `GTNT` child is stored at `Resource + 0x480`) and `ESFT` (its data is linked into the per-`EmitterSet` records at `+0x18`, walking a chain through `data + 0x10`); neither occurs in the corpus, so their payloads are not mapped. The tree is: `ESTA` -> `ESET`* -> `EMTR`* -> attribute chunks.
+
+**`size` semantics and alignment (corpus; needed to write a file):**
+
+| Kind | `size` | `sibling_rel` | Data alignment |
+|---|---|---|---|
+| attribute chunks (`EAxx F*** EP0x CxDP`) | `0x20 + payload` | equals `size` when a next chunk follows | `data_rel = 0x20` |
+| `EMTR` | total node: header + padding + `0x10C8` data + attribute chunks | equals `size` unless it is the last `EMTR` in its `ESET` (then `0xFFFFFFFF`) | **data starts on a `0x100` boundary** of the file; `attribute_rel = data_rel + 0x10C8` |
+| `ESET` | total node: header + `0xB4` data + all child `EMTR` | equals `size` | `data_rel = 0x20`, `child_rel = 0xD4` |
+| `ESTA` | total node including all `ESET` | `size` rounded up | `data_rel = child_rel = 0x20` (no separate data block) |
+| `PRMA` / `PRIM` | `PRIM`: payload bytes (data starts at `+0x20`) | next node starts at `0x20 + size` rounded to `4` | `data_rel = 0x20` |
+| `TRMA` | `0` | `0x20` | no data |
+| `G3PR` | payload bytes of the embedded G3D resource file (0 when none) | node + `0x20` + children + padding | **data starts on a `0x1000` boundary**; `data_rel = 0xFFFFFFFF` when empty |
+| `G3NT` | `0x18 * entry_count` (payload only) | `align16(0x20 + size)` | `data_rel = 0x20` |
+| `GRSN` | `0` | `0xFFFFFFFF` | `child_rel` points past `0x1000`-alignment padding to the first child; `data_rel = 0x20` |
+
+**`ESET` data (`0xB4` bytes).** Evidence: `InitializeEmitterSetResource` (`0x710001EC9C`) reads the emitter count; the name offset comes from `SearchEmitterSetId`. Corpus: `+0x00..+0x0F` zero in all 5,660 sets; `+0x50..+0x6F` zero except 9 sets whose name continues past `+0x4F` (so the name field can spill into this area); `+0x74`, `+0x7C..+0x93`, `+0xAC..+0xB3` zero.
+
+| Offset | Size | Type | Field | Evidence |
+|:---:|:---:|:---:|:---|:---|
+| `+0x10` | up to `0x40` | `char[]` | `name` | NUL-terminated; 3,430 distinct names. |
+| `+0x70` | 2 | `uint16` | `emitter_count` | `InitializeEmitterSetResource` (`ldrh [data,#0x70]`). |
+| `+0x78` | 4 | `bytes[4]` | `unverified_78` | Not read by `EmitterSet::Initialize`; corpus `0` except `0xFF` in 11 sets. |
+| `+0x94`, `+0x98`, `+0x9C`, `+0xA0`, `+0xA4` | 5 x 4 | `float[5]` | `unverified_94..A4` | No reader found in `EmitterSet::Initialize`/`CreateEmitter`; corpus values look like floats (`+0xA0` is `10`, `30`, `50` in many sets, `+0x94` can be `-600`). |
+| `+0xA8` | 4 | `uint32` | `unverified_A8` | Corpus: `0` or `1`. |
+
+**`GRSN` shader-resource node.** `TraceShaderBinaryArray` (`0x710001E0FC`) searches the `GRSN` child chain for these children (little-endian FourCC constants decoded): `GRSR` (graphics shader file: `data` is the BNSH `nn::gfx::ResShaderFile`, `size` is stored at `Resource + 0x4E8`), `GRRI` and `GRRE` (stored at `Resource + 0x3C0` / `+0x3C8`; `GRRE` empty in the corpus), `GRSC` (compute shader file; `size` stored at `Resource + 0x4F0`), `GRCI` and `GRCE` (stored at `Resource + 0x400` / `+0x408`). Corpus: every `GRSN` has `GRSR` (data on a `0x1000` boundary), then an empty `GRRE` (`0x100` after), then an empty `GRCE`. The BNSH holds reflection block names `NnVfx2EmitterDynamicParam`, `NnVfx2ViewParam`, `sysEmitterStaticUniformBlock`, `sysCustomShaderUniformBlock1/2`, `sysCustomShaderReservedUniformBlockParam` and `sysEmitterPluginUniformBlock`. PtclSharp's tree reader does not follow the `GRSN` child chain, so it reports `GRSN` with no children.
+
+**`G3PR` / `G3NT`.** `Resource::Trace` (`0x710001CCCC`) finds the `G3NT` child, stores its data pointer at `Resource + 0x488`, then casts the `G3PR` data to a G3D resource file (`nn::g3d2::ResFile`, signature `FRES`) and binds it (`BindExternalG3dResFile`, `0x710001E8E4`). Each primitive is paired with one `G3NT` entry: entries are `0x18` bytes and chained by the `uint32` at entry `+0x08` (`0` ends the chain); `G3dPrimitive::Initialize` (`0x7100020444`) reads entry bytes `+0x14` and `+0x15` as vertex-attribute indices (`0xFF` = none) used when a vertex attribute lookup by name fails. Entry `+0x00` (a 4-byte value) and bytes `+0x10..+0x13` are not read by the traced code.
+
+**`PRMA` / `PRIM` (`Primitive::Initialize`, `0x710001FEAC` / `0x710001FF3C`).** `PRIM` data layout (offsets from the data start, relative array offsets are measured from the data start and `0` means absent):
+
+| Offset | Size | Type | Field | Evidence |
+|:---:|:---:|:---:|:---|:---|
+| `+0x00` | 8 | `uint64` | `unique_id` | First argument of the low-level initializer. SDK `UniqueId`. |
+| `+0x08` | 4 | `int32` | `vertex_count` | Second argument (array count). SDK `Position.Count`. |
+| `+0x0C..+0x37` | `0x2C` | `bytes` | `unverified_array_descriptors` | Not read by the traced initializer; corpus shows (count, component-count) pairs for the other attribute arrays (`+0x0C = 3`, `+0x14 = 3`, `+0x24 = 4`, `+0x2C = 2`, `+0x34 = 2`). |
+| `+0x38` | 4 | `int32` | `index_count` | Argument 4. SDK `IndexCount`. |
+| `+0x3C` | 4 | `uint32` | `position_array_offset` | Interleaved first (`vec4` stride) when present. SDK order Position, Normal, Tangent, Color, TexCoord. |
+| `+0x40` | 4 | `uint32` | `normal_array_offset` | |
+| `+0x44` | 4 | `uint32` | `tangent_array_offset` | |
+| `+0x48` | 4 | `uint32` | `color_array_offset` | |
+| `+0x4C` | 4 | `uint32` | `texcoord_array_offset` | |
+| `+0x50` | 4 | `uint32` | `index_array_offset` | `memcpy` of `index_count * 4` bytes (32-bit indices). |
+
+Each present array is a sequence of `vertex_count` `float4` values; the runtime vertex buffer interleaves them in the order above with stride `16 * present_array_count` (confirmed by the copy loops in `0x710001FF3C`).
+
 ---
 
 ## 2. Byte-by-Byte Verified Field Map
 
 | TotK Offset | BotW Offset | Delta | Size (B) | Type | Field Name | Executable Behavior & Verification Evidence |
 |:---:|:---:|:---:|:---:|:---:|:---|:---|
-| `0x000` | `0x000` | `+0x000` | 4 | `bytes[4]` | `unverified_000` | EMTR data, not the node FourCC. The FourCC is in the separate node header. No unambiguous data-field reader has yet established this value's meaning. |
-| `0x004` | `0x004` | `+0x000` | 4 | `bytes[4]` | `unverified_004` | EMTR data, not the node size. No unambiguous data-field reader has yet established this value's meaning. |
-| `0x008` | `0x008` | `+0x000` | 4 | `bytes[4]` | `unverified_008` | EMTR data, not the VFXB version. The format version belongs to the file header. No unambiguous data-field reader has yet established this value's meaning. |
-| `0x00C` | `0x00C` | `+0x000` | 4 | `bytes[4]` | `unverified_00C` | EMTR data, not node-header flags. No unambiguous data-field reader has yet established this value's meaning. |
+| `0x000` | `0x000` | `+0x000` | 4 | `bytes[4]` | `unverified_000` | EMTR data, not the node FourCC. The FourCC is in the separate node header. No unambiguous data-field reader has yet established this value's meaning. **Audit:** CPU: no reader found in the traced functions (the immediate-offset scan is not discriminating below `0xCA0` because many other structs share those offsets). GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: all-zero in 25,261/25,261 emitters. |
+| `0x004` | `0x004` | `+0x000` | 4 | `bytes[4]` | `unverified_004` | EMTR data, not the node size. No unambiguous data-field reader has yet established this value's meaning. **Audit:** CPU: no reader found in the traced functions (the immediate-offset scan is not discriminating below `0xCA0` because many other structs share those offsets). GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: all-zero in 25,261/25,261 emitters. |
+| `0x008` | `0x008` | `+0x000` | 4 | `bytes[4]` | `unverified_008` | EMTR data, not the VFXB version. The format version belongs to the file header. No unambiguous data-field reader has yet established this value's meaning. **Audit:** CPU: no reader found in the traced functions (the immediate-offset scan is not discriminating below `0xCA0` because many other structs share those offsets). GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: all-zero in 25,261/25,261 emitters. |
+| `0x00C` | `0x00C` | `+0x000` | 4 | `bytes[4]` | `unverified_00C` | EMTR data, not node-header flags. No unambiguous data-field reader has yet established this value's meaning. **Audit:** CPU: no reader found in the traced functions (the immediate-offset scan is not discriminating below `0xCA0` because many other structs share those offsets). GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: all-zero in 25,261/25,261 emitters. |
 | `0x010` | `0x010` | `+0x000` | 64 | `char[64]` | `emitter_name` | Null-terminated emitter name. `Resource::Trace` passes `EmitterResource->data + 0x10` as the emitter name in initialization and descriptor-slot diagnostics. |
-| `0x050` | `0x050` | `+0x000` | 4 | `bytes[4]` | `unverified_050` | No unambiguous TotK executable use has established the serialized meaning. |
-| `0x054` | `0x054` | `+0x000` | 4 | `bytes[4]` | `unverified_054` | No unambiguous TotK executable use has established the serialized meaning. |
-| `0x058` | `0x058` | `+0x000` | 4 | `bytes[4]` | `unverified_058` | Not the fixed emitter seed used by `Emitter::Initialize`; that confirmed value is at `0xCB0`. No unambiguous use has established this slot's meaning. |
-| `0x05C` | `0x05C` | `+0x000` | 4 | `bytes[4]` | `unverified_05C` | The `+0x5C` scale read in `Emitter::InitializeParticle` is through the emitter-set/runtime pointer, not the EMTR serialized-data pointer. It therefore does not prove an EMTR `global_scale` field here. |
+| `0x050` | `0x050` | `+0x000` | 4 | `bytes[4]` | `unverified_050` | No unambiguous TotK executable use has established the serialized meaning. **Audit:** CPU: no reader found in the traced functions (the immediate-offset scan is not discriminating below `0xCA0` because many other structs share those offsets). GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: all-zero in 25,261/25,261 emitters. |
+| `0x054` | `0x054` | `+0x000` | 4 | `bytes[4]` | `unverified_054` | No unambiguous TotK executable use has established the serialized meaning. **Audit:** CPU: no reader found in the traced functions (the immediate-offset scan is not discriminating below `0xCA0` because many other structs share those offsets). GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: all-zero in 25,261/25,261 emitters. |
+| `0x058` | `0x058` | `+0x000` | 4 | `bytes[4]` | `unverified_058` | Not the fixed emitter seed used by `Emitter::Initialize`; that confirmed value is at `0xCB0`. No unambiguous use has established this slot's meaning. **Audit:** CPU: no reader found in the traced functions (the immediate-offset scan is not discriminating below `0xCA0` because many other structs share those offsets). GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: all-zero in 25,261/25,261 emitters. |
+| `0x05C` | `0x05C` | `+0x000` | 4 | `bytes[4]` | `unverified_05C` | The `+0x5C` scale read in `Emitter::InitializeParticle` is through the emitter-set/runtime pointer, not the EMTR serialized-data pointer. It therefore does not prove an EMTR `global_scale` field here. **Audit:** CPU: no reader found in the traced functions (the immediate-offset scan is not discriminating below `0xCA0` because many other structs share those offsets). GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: all-zero in 25,261/25,261 emitters. |
 | `0x060` | â€” | â€” | 16 | `bytes[16]` | `reserved_060_06F` | Pre-body/alignment region. Preserve verbatim; no reader has established that every byte is semantically inert. |
 | **`+0x070`**| **`+0x050`**| **`+0x020`**| â€” | â€” | **Secondary body pointer** | `InitializeEmitterSetResource` stores `EMTR.data + 0x70` at `EmitterResource + 0x260` (`plVar16[0x4C]`). This is not the node-data pointer itself; `EmitterResource + 0x00` continues to hold `EMTR.data`. |
 | `0x070` | `0x050` | `+0x020` | 4 | `uint32` | `runtime_shader_flags_word0` | Runtime staging, not an emitter ordinal. `EmitterResource::UpdateParams` overwrites this word with word 0 produced by `ShaderFlag::Initialize`. |
@@ -53,7 +161,7 @@ The VFXB resource-node header is a separate `0x20`-byte structure. `Resource::In
 | `0x09C` | â€” | TotK only | 4 | `uint32` | `track7_key_count` | Key count (0..8) for generic track 7. |
 | `0x0A0` | â€” | TotK only | 4 | `uint32` | `track8_key_count` | Key count (0..8) for generic track 8. |
 | `0x0A4` | â€” | TotK only | 4 | `uint32` | `track9_key_count` | Key count (0..8) for generic track 9. |
-| `0x0A8` | `0x074` | â€” | 8 | `bytes[8]` | `unverified_0A8_0AF`| No EMTR-data reader has established these serialized bytes. The previous vertex-attribute-slot claim confused virtual primitive-buffer queries in `CreateVertexState` with reads from the serialized data. |
+| `0x0A8` | `0x074` | â€” | 8 | `bytes[8]` | `unverified_0A8_0AF`| No EMTR-data reader has established these serialized bytes. The previous vertex-attribute-slot claim confused virtual primitive-buffer queries in `CreateVertexState` with reads from the serialized data. **Audit:** CPU: no reader found in the traced functions (the immediate-offset scan is not discriminating below `0xCA0` because many other structs share those offsets). GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: all-zero in 25,261/25,261 emitters. |
 | `0x0B0` | â€” | Runtime overlay | 4 | `float` | `runtime_loop_track0_rate` | Written by `UpdateParams` as `float(E34)` when `E28 != 0`, otherwise `0.0`. This overlaps serialized vertex-attribute bytes and is not an independent serialized input. |
 | `0x0B4` | â€” | Runtime overlay | 4 | `float` | `runtime_loop_track1_rate` | Written by `UpdateParams` as `float(E36)` when `E29 != 0`, otherwise `0.0`. The first byte overlaps the final serialized vertex-attribute slot. |
 | `0x0B8` | â€” | Runtime overlay | 4 | `float` | `runtime_loop_track2_rate` | Written by `UpdateParams` as `float(E38)` when `E2A != 0`, otherwise `0.0`. |
@@ -64,8 +172,16 @@ The VFXB resource-node header is a separate `0x20`-byte structure. `Resource::In
 | `0x0CC` | â€” | Runtime overlay | 4 | `float` | `runtime_loop_track2_random_enable` | Written by `UpdateParams` as `1.0` when `E2F != 0`, otherwise `0.0`. |
 | `0x0D0` | â€” | Runtime overlay | 4 | `float` | `runtime_loop_track3_random_enable` | Written by `UpdateParams` as `1.0` when `E30 != 0`, otherwise `0.0`. |
 | `0x0D4` | â€” | Runtime overlay | 4 | `float` | `runtime_loop_track4_random_enable` | Written by `UpdateParams` as `1.0` when `E31 != 0`, otherwise `0.0`. |
-| `0x0EC` | `0x744` | â€” | 4 | `bytes[4]` | `unverified_0EC`| The apparent `+0xEC` multiplier in particle code is an offset in the live `Emitter` object, not in the EMTR data pointer. It does not prove a serialized `init_velocity_factor` here. This word is included in the `0xCA0`-byte constant-buffer upload, but its shader meaning remains unverified. |
-| `0x100`â€“`0x10F` | â€” | â€” | 16 | `bytes[16]` | `unverified_uniform_100_10F` | Uploaded in the `0xCA0`-byte constant-buffer copy; fields remain unmapped. |
+| `0xD8`–`0xDF` | — | — | 8 | `bytes[8]` | `unverified_D8_DF` | Not a documented field. **Audit:** CPU: no reader found in the traced functions (the immediate-offset scan is not discriminating below `0xCA0` because many other structs share those offsets). GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: all-zero in 25,261/25,261 emitters. |
+| `0x0E0` | â€” | â€” | 12 | `float[3]` | `stationary_diff_fallback_xyz` | Fallback vector used by `Emitter::CalculateParticle` when the newly calculated particle-position delta is degenerate and the frame-time value is zero. If `0xD49` is nonzero the vector is transformed through the emitter coordinate basis before use; the resulting XYZ is multiplied by `1e-6` and stored as the particle's local difference. |
+| `0x0EC` | `0x744` | â€” | 4 | `float` | `stationary_diff_fallback_selector`| Read from the serialized EMTR data pointer by `Emitter::CalculateParticle`. A value `<= 0` makes the degenerate-delta path derive a normalized fallback from live velocity/position-difference data; a positive value selects the explicit vector at `0x0E0..0x0E8`. The arithmetic uses only the sign test, so a stronger friendly name is not asserted. |
+| `0x0F0` | â€” | â€” | 4 | `float` | `velocity_attenuation_per_frame` | Per-frame multiplier applied to the particle velocity in `EmitterCalculator::CalculateParticleBehavior`. `1.0` leaves velocity unchanged; otherwise the CPU multiplies velocity by `pow(value, frame_time)`. This is the executable behavior corresponding to air resistance/drag. |
+| `0xF4` | — | — | 4 | `float` | `unverified_F4` | Vertex stage only (684 programs): `fma(t, F, t)` 531, `fma(t, F, 0.0)` 102, `fma(0.0, F, 1.0)` 39, `fma(t, F, 1.0)` 12; used as a multiplier of a position-like term. Not part of the `0xF0` velocity-attenuation row (`+0xF0` is a different float). **Audit:** CPU: no reader in `nn::vfx2` (bytes at or beyond `0xCA0` are not in the GPU copy, below it the shader reads are the only consumers found). GPU stages reading it: V (V vertex, F fragment) across 14,423 shader programs. Corpus: 3 distinct values, most common `00000000` x25,245, `0000803f` x10, `00000040` x6. |
+| `0xF8`–`0xFF` | — | — | 8 | `bytes[8]` | `unverified_F8_FF` | No shader or CPU read. **Audit:** CPU: no reader in `nn::vfx2` (bytes at or beyond `0xCA0` are not in the GPU copy, below it the shader reads are the only consumers found). GPU stages reading it: none (V vertex, F fragment) across 14,423 shader programs. Corpus: all-zero in 25,261/25,261 emitters. |
+| `0x100` | — | — | 4 | `float` | `template_vertex_bias_x` | Vertex shaders compute `template_vertex_position.x + 0.5 * value` (the `sysPosAttr` template vertex plus half this component) before the emitter scale/rotation is applied: observed as `fma(0.5, F, sysPosAttr.x)` in the sample archive; the pattern `t = fma(0.5, F, t)` occurs in about 14,180 of the 14,423 programs, and in 16,151 of 35,600 traced axis uses the addend is read straight from `sysPosAttr.<axis>` (the others go through intermediate temporaries). The editor-level name (for example a pivot offset) is not established. **Audit:** CPU: no reader in `nn::vfx2` (bytes at or beyond `0xCA0` are not in the GPU copy, below it the shader reads are the only consumers found). GPU stages reading it: FV (V vertex, F fragment) across 14,423 shader programs. Corpus: 40 distinct values, most common `00000000` x25,050, `000080bf` x19, `0000803f` x14. |
+| `0x104` | — | — | 4 | `float` | `template_vertex_bias_y` | Vertex shaders compute `template_vertex_position.y + 0.5 * value` (the `sysPosAttr` template vertex plus half this component) before the emitter scale/rotation is applied: observed as `fma(0.5, F, sysPosAttr.y)` in the sample archive and as the pattern `t = fma(0.5, F, t)` in ~14,180 of the 14,423 programs. The editor-level name (for example a pivot offset) is not established. **Audit:** CPU: no reader in `nn::vfx2` (bytes at or beyond `0xCA0` are not in the GPU copy, below it the shader reads are the only consumers found). GPU stages reading it: FV (V vertex, F fragment) across 14,423 shader programs. Corpus: 104 distinct values, most common `00000000` x21,717, `0000803f` x458, `0000003f` x338. |
+| `0x108` | — | — | 4 | `float` | `template_vertex_bias_z` | Vertex shaders compute `template_vertex_position.z + 0.5 * value` (the `sysPosAttr` template vertex plus half this component) before the emitter scale/rotation is applied: observed as `fma(0.5, F, sysPosAttr.z)` in the sample archive and as the pattern `t = fma(0.5, F, t)` in ~14,180 of the 14,423 programs. The editor-level name (for example a pivot offset) is not established. **Audit:** CPU: no reader in `nn::vfx2` (bytes at or beyond `0xCA0` are not in the GPU copy, below it the shader reads are the only consumers found). GPU stages reading it: FV (V vertex, F fragment) across 14,423 shader programs. Corpus: 34 distinct values, most common `00000000` x25,020, `000080bf` x51, `cdcc4c3e` x40. |
+| `0x10C` | — | — | 4 | `float` | `unverified_10C` | Vertex stage only; used as a multiplier/addend inside position arithmetic (`fma(t, F, t)` 34,127 times, `t * F` 2,486, `t + F` 1,311, `fma(t, t, F)` 1,107, plain move 155). The first use in the sample shader is `position + something * value` after the other position terms. Role-level meaning not established. **Audit:** CPU: no reader in `nn::vfx2` (bytes at or beyond `0xCA0` are not in the GPU copy, below it the shader reads are the only consumers found). GPU stages reading it: V (V vertex, F fragment) across 14,423 shader programs. Corpus: 163 distinct values, most common `00000000` x9,146, `0000003f` x4,869, `cdcc4c3e` x1,629. |
 | `0x110` | â€” | TotK only | 4 | `float` | `waveform0_amplitude` | Amplitude in `abs(1 - amplitude * waveform)` for alpha and Scale X modulation. |
 | `0x114` | â€” | TotK only | 4 | `float` | `waveform1_amplitude` | Second-axis amplitude used for Scale Y modulation. |
 | `0x118` | â€” | TotK only | 4 | `float` | `waveform0_period` | Divisor in `(time_offset + particle_time) / period` for alpha and Scale X. |
@@ -74,67 +190,139 @@ The VFXB resource-node header is a separate `0x20`-byte structure. `Resource::In
 | `0x124` | â€” | TotK only | 4 | `float` | `waveform1_random_phase_scale` | Second-axis random phase scale. |
 | `0x128` | â€” | TotK only | 4 | `float` | `waveform0_time_offset` | Added to particle time before division by waveform-0 period. |
 | `0x12C` | â€” | TotK only | 4 | `float` | `waveform1_time_offset` | Second-axis time offset. |
-| `0x130`â€“`0x13F` | â€” | â€” | 16 | `bytes[16]` | `unverified_uniform_130_13F` | Uploaded in the constant-buffer copy; fields remain unmapped. |
+| `0x130` | — | — | 4 | `float` | `unverified_130` | Fragment stage only, in 1,263 programs: `t = t * F` (1,259) or `fma(t, F, t)` (4). A multiplier applied to a fragment quantity; meaning not established. **Audit:** CPU: no reader in `nn::vfx2` (bytes at or beyond `0xCA0` are not in the GPU copy, below it the shader reads are the only consumers found). GPU stages reading it: F (V vertex, F fragment) across 14,423 shader programs. Corpus: 52 distinct values, most common `00000000` x18,404, `cdcccc3d` x3,497, `cdcc4c3d` x543. |
+| `0x134` | — | — | 4 | `float` | `unverified_134` | Fragment stage only, in 1,263 programs: `t = t * F` (1,259) or `fma(t, F, t)` (4). A multiplier applied to a fragment quantity; meaning not established. **Audit:** CPU: no reader in `nn::vfx2` (bytes at or beyond `0xCA0` are not in the GPU copy, below it the shader reads are the only consumers found). GPU stages reading it: F (V vertex, F fragment) across 14,423 shader programs. Corpus: 54 distinct values, most common `00000000` x18,456, `cdcccc3d` x3,504, `cdcc4c3d` x575. |
+| `0x138`–`0x13F` | — | — | 8 | `bytes[8]` | `unverified_138_13F` | No shader or CPU read. **Audit:** CPU: no reader in `nn::vfx2` (bytes at or beyond `0xCA0` are not in the GPU copy, below it the shader reads are the only consumers found). GPU stages reading it: none (V vertex, F fragment) across 14,423 shader programs. Corpus: all-zero in 25,261/25,261 emitters. |
 | `0x140`â€“`0x1CF` | â€” | TotK only | `0x90` | `bytes[0x90]` | `tex0_flipbook_runtime_block` | When `0x1028 == 4`, `ShaderFlag::Initialize` reads float count at `+0x08` (`0x148`), copies it to `+0x00` (`0x140`), initializes sequential `int32` indices at `+0x10` (`0x150`), and sets shader word 0 bit `0x80`. Other bytes remain unmapped. |
 | `0x1D0`â€“`0x25F` | â€” | TotK only | `0x90` | `bytes[0x90]` | `tex1_flipbook_runtime_block` | Slot 1 equivalent: count `0x1D8`, runtime copy `0x1D0`, sequential indices from `0x1E0`, shader word 0 bit `0x800`. |
 | `0x260`â€“`0x2EF` | â€” | TotK only | `0x90` | `bytes[0x90]` | `tex2_flipbook_runtime_block` | Slot 2 equivalent: count `0x268`, runtime copy `0x260`, sequential indices from `0x270`, shader word 0 bit `0x8000`. |
 | `0x2F0`â€“`0x37F` | â€” | TotK only | `0x90` | `bytes[0x90]` | `tex3_flipbook_runtime_block` | Slot 3 equivalent: count `0x2F8`, runtime copy `0x2F0`, sequential indices from `0x300`, shader word 0 bit `0x80000`. |
 | `0x380`â€“`0x40F` | â€” | TotK only | `0x90` | `bytes[0x90]` | `tex4_flipbook_runtime_block` | Slot 4 equivalent: count `0x388`, runtime copy `0x380`, sequential indices from `0x390`, shader word 0 bit `0x800000`. |
 | `0x410`â€“`0x49F` | â€” | TotK only | `0x90` | `bytes[0x90]` | `tex5_flipbook_runtime_block` | Slot 5 equivalent: count `0x418`, runtime copy `0x410`, sequential indices from `0x420`, shader word 0 bit `0x8000000`. |
-| `0x4A0`â€“`0x4EF` | `0x2C0` | â€” | `0x50`| `bytes` | `tex0_uniform_block`| Texture slot 0 UV-transform/animation staging block (`UpdateParams:L198-203`). |
-| `0x4F0`â€“`0x53F` | `0x310` | â€” | `0x50`| `bytes` | `tex1_uniform_block`| Texture slot 1 UV-transform/animation staging block (`UpdateParams:L211-216`). |
-| `0x540`â€“`0x58F` | `0x360` | â€” | `0x50`| `bytes` | `tex2_uniform_block`| Texture slot 2 UV-transform/animation staging block (`UpdateParams:L224-229`). |
-| `0x590`â€“`0x5DF` | â€” | TotK only | `0x50`| `bytes` | `tex3_uniform_block`| Texture slot 3 UV-transform/animation staging block (`UpdateParams:L237-242`). |
-| `0x5E0`â€“`0x62F` | â€” | TotK only | `0x50`| `bytes` | `tex4_uniform_block`| Texture slot 4 UV-transform/animation staging block (`UpdateParams:L250-255`). |
-| `0x630`â€“`0x67F` | â€” | TotK only | `0x50`| `bytes` | `tex5_uniform_block`| Texture slot 5 UV-transform/animation staging block (`UpdateParams:L263-268`). |
-| `0x680` | `0x3B0` | `+0x2D0` | 4 | `float` | `unverified_680` | Precedes the confirmed Color0 key array at `0x690`. `UpdateParams` uses `0x680 + key_count*0x10` only as address arithmetic that lands on the last Color0 key; that does not establish an `alpha_scale` semantic for the word at `0x680` itself. |
+| `0x4A0`â€“`0x4EF` | `0x2C0` | â€” | `0x50`| `bytes` | `tex0_uniform_block`| Texture slot 0 UV-transform/animation staging block. Its Ghidra-confirmed sub-layout is given below. |
+| `0x4F0`â€“`0x53F` | `0x310` | â€” | `0x50`| `bytes` | `tex1_uniform_block`| Texture slot 1 copy of the same `0x50`-byte layout. |
+| `0x540`â€“`0x58F` | `0x360` | â€” | `0x50`| `bytes` | `tex2_uniform_block`| Texture slot 2 copy of the same `0x50`-byte layout. |
+| `0x590`â€“`0x5DF` | â€” | TotK only | `0x50`| `bytes` | `tex3_uniform_block`| Texture slot 3 copy of the same `0x50`-byte layout. |
+| `0x5E0`â€“`0x62F` | â€” | TotK only | `0x50`| `bytes` | `tex4_uniform_block`| Texture slot 4 copy of the same `0x50`-byte layout. |
+| `0x630`â€“`0x67F` | â€” | TotK only | `0x50`| `bytes` | `tex5_uniform_block`| Texture slot 5 copy of the same `0x50`-byte layout. |
+
+Each texture-uniform block uses the same slot-relative layout, with bases `0x4A0 + slot * 0x50` for slots 0 through 5. `EmitterResource::UpdateParams @ 0x710000BBE4` establishes the following without relying on SDK source names:
+
+| Relative offset | Size | Conservative name | Executable behavior |
+|---:|---:|---|---|
+| `+0x00..+0x17` | `0x18` | `uv_translation_parameters` | Six floats are forced to `0.0` when that slot's translation/scroll-animation enable byte is zero. |
+| `+0x18..+0x2F` | `0x18` | `uv_scale_parameters` | Six floats form the scale-animation band. When disabled, `+0x20` and `+0x24` are forced to `1.0`, while `+0x18`, `+0x1C`, `+0x28`, and `+0x2C` are forced to `0.0`. |
+| `+0x30..+0x3B` | `0x0C` | `uv_rotation_parameters` | Three floats are forced to `0.0` when that slot's rotation-animation enable byte is zero. |
+| `+0x3C..+0x3F` | `0x04` | `unverified_uv_parameter_3C` | No distinct CPU-side meaning established. |
+| `+0x40..+0x47` | `0x08` | `uv_domain_scale_xy` | Two floats are written from two four-entry constant tables using the slot's `0x102C + slot * 0x10` selector. The exact editor-facing selector names remain unproven. |
+| `+0x48..+0x4F` | `0x08` | `unverified_uv_parameter_48_4F` | Not assigned by the traced normalization branches. |
+
+| `0x680` | `0x3B0` | `+0x2D0` | 4 | `float` | `particle_color_rgb_scale` | Shared RGB intensity multiplier for both particle Color0 and Color1. The two `CalculateParticleColor*VecFromTime` functions read it as secondary-body `+0x610` (serialized `0x680`) and multiply all three RGB lanes by it; alpha is handled separately. |
+| `0x684`–`0x68F` | — | — | 12 | `bytes[12]` | `unverified_684_68F` | Not a documented field. **Audit:** CPU: no reader found in the traced functions (the immediate-offset scan is not discriminating below `0xCA0` because many other structs share those offsets). GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: all-zero in 25,261/25,261 emitters. |
 | `0x690` | `0x3C0` | `+0x2D0` | 128 | `float[8][4]` | `kf_color0` | Color0 RGB keyframes `(val.xyz, time.w)` (`UpdateParams:L97, 494`). |
 | `0x710` | `0x440` | `+0x2D0` | 128 | `float[8][4]` | `kf_alpha0` | Alpha0 keyframes `(val.x, time.w)` (`UpdateParams:L105, 674`). |
 | `0x790` | `0x4C0` | `+0x2D0` | 128 | `float[8][4]` | `kf_color1` | Color1 RGB keyframes `(val.xyz, time.w)` (`UpdateParams:L114, 584`). |
 | `0x810` | `0x540` | `+0x2D0` | 128 | `float[8][4]` | `kf_alpha1` | Alpha1 keyframes `(val.x, time.w)` (`UpdateParams:L122, 764`). |
+| `0x890` | — | — | 4 | `float` | `unverified_890` | Vertex stage only (28 programs): `fma(S, F, t)` where `S` is another static-block float; both factors of a product added to a vertex term. Role not established. **Audit:** CPU: no reader in `nn::vfx2` (bytes at or beyond `0xCA0` are not in the GPU copy, below it the shader reads are the only consumers found). GPU stages reading it: V (V vertex, F fragment) across 14,423 shader programs. Corpus: 6 distinct values, most common `00000000` x25,191, `0ad7233c` x38, `0000a041` x21. |
+| `0x894` | — | — | 4 | `float` | `unverified_894` | Vertex stage only (8,716 occurrences): used as `0.0 - F`, `t + F`, `fma(0.0, F, t)` and in the constant-coefficient pattern `fma(F, 0.24, t)` / `fma(F, 0.48, t)` / `fma(F, 0.1, t)` (a fixed multi-tap offset pattern scaled by this value). Role not established. **Audit:** CPU: no reader in `nn::vfx2` (bytes at or beyond `0xCA0` are not in the GPU copy, below it the shader reads are the only consumers found). GPU stages reading it: V (V vertex, F fragment) across 14,423 shader programs. Corpus: 24 distinct values, most common `0000003f` x23,613, `cdcccc3d` x462, `0000803f` x363. |
+| `0x898` | — | — | 4 | `float` | `unverified_898` | Used as a lower bound `x - F` (`0.0 - F` in 2,392 occurrences, mostly fragment) together with `0x89C`: the shaders form `(abs(x) - F898) / (F89C - F898)`, a normalized ramp between this value and `0x89C`. Which quantity `x` is depends on the program. **Audit:** CPU: no reader in `nn::vfx2` (bytes at or beyond `0xCA0` are not in the GPU copy, below it the shader reads are the only consumers found). GPU stages reading it: FV (V vertex, F fragment) across 14,423 shader programs. Corpus: 27 distinct values, most common `00000000` x14,867, `0000803f` x8,766, `cdcccc3d` x437. |
+| `0x89C` | — | — | 4 | `float` | `unverified_89C` | Upper bound paired with `0x898`: `F89C + (0.0 - F898)` is the ramp width (`F + t` / `t + F`, 1,191 occurrences). **Audit:** CPU: no reader in `nn::vfx2` (bytes at or beyond `0xCA0` are not in the GPU copy, below it the shader reads are the only consumers found). GPU stages reading it: FV (V vertex, F fragment) across 14,423 shader programs. Corpus: 32 distinct values, most common `0000803f` x14,267, `00000000` x8,806, `0000003f` x971. |
+| `0x8A0` | — | — | 4 | `float` | `unverified_8A0` | Vertex-stage lower bound (`0.0 - F`, 6,646 occurrences), paired with `0x8A4`. **Audit:** CPU: no reader in `nn::vfx2` (bytes at or beyond `0xCA0` are not in the GPU copy, below it the shader reads are the only consumers found). GPU stages reading it: V (V vertex, F fragment) across 14,423 shader programs. Corpus: 100 distinct values, most common `00002041` x13,193, `0000803f` x2,725, `00000040` x2,117. |
+| `0x8A4` | — | — | 4 | `float` | `unverified_8A4` | Vertex-stage upper bound (`t + F`, 3,323 occurrences): ramp width is `F8A4 - F8A0`. **Audit:** CPU: no reader in `nn::vfx2` (bytes at or beyond `0xCA0` are not in the GPU copy, below it the shader reads are the only consumers found). GPU stages reading it: V (V vertex, F fragment) across 14,423 shader programs. Corpus: 106 distinct values, most common `0000f041` x12,323, `00000040` x2,269, `00004040` x1,887. |
+| `0x8A8` | — | — | 4 | `float` | `unverified_8A8` | Vertex-stage lower bound (`0.0 - F`, 960 occurrences), paired with `0x8AC`. **Audit:** CPU: no reader in `nn::vfx2` (bytes at or beyond `0xCA0` are not in the GPU copy, below it the shader reads are the only consumers found). GPU stages reading it: V (V vertex, F fragment) across 14,423 shader programs. Corpus: 77 distinct values, most common `0000a042` x21,653, `00004842` x389, `00002041` x382. |
+| `0x8AC` | — | — | 4 | `float` | `unverified_8AC` | Vertex-stage upper bound (`t + F`, 480 occurrences). **Audit:** CPU: no reader in `nn::vfx2` (bytes at or beyond `0xCA0` are not in the GPU copy, below it the shader reads are the only consumers found). GPU stages reading it: V (V vertex, F fragment) across 14,423 shader programs. Corpus: 85 distinct values, most common `0000c842` x21,749, `0000f041` x527, `0000a041` x396. |
+| `0x8B0` | — | — | 4 | `float` | `unverified_8B0` | Fragment stage only (105 programs): comparison `t >= F`. Role not established. **Audit:** CPU: no reader in `nn::vfx2` (bytes at or beyond `0xCA0` are not in the GPU copy, below it the shader reads are the only consumers found). GPU stages reading it: F (V vertex, F fragment) across 14,423 shader programs. Corpus: 18 distinct values, most common `0000803f` x24,785, `0000003f` x238, `cdcccc3e` x47. |
+| `0x8B4` | — | — | 4 | `bytes[4]` | `unverified_8B4` | No shader or CPU read. **Audit:** CPU: no reader in `nn::vfx2` (bytes at or beyond `0xCA0` are not in the GPU copy, below it the shader reads are the only consumers found). GPU stages reading it: none (V vertex, F fragment) across 14,423 shader programs. Corpus: all-zero in 25,261/25,261 emitters. |
+| `0x8B8` | — | — | 4 | `float` | `fragment_discard_threshold` | Fragment stage in 13,868 programs: `t <= F` (13,783) or `t < F` (85) where the compared value is the final alpha-like product that the shader computes before blending; the comparison result directly guards a `discard` in 8,188 of the 13,868 programs that contain the comparison (`if (alpha <= F) discard;`, for example fragment shader `00089FC7_v1.frag`); in the rest the guard is structured differently. **Audit:** CPU: no reader in `nn::vfx2` (bytes at or beyond `0xCA0` are not in the GPU copy, below it the shader reads are the only consumers found). GPU stages reading it: F (V vertex, F fragment) across 14,423 shader programs. Corpus: 17 distinct values, most common `00000000` x21,949, `0000003f` x3,019, `0ad7233c` x111. |
+| `0x8BC` | — | — | 4 | `bytes[4]` | `unverified_8BC` | No shader or CPU read. **Audit:** CPU: no reader in `nn::vfx2` (bytes at or beyond `0xCA0` are not in the GPU copy, below it the shader reads are the only consumers found). GPU stages reading it: none (V vertex, F fragment) across 14,423 shader programs. Corpus: all-zero in 25,261/25,261 emitters. |
+| `0x8C0` | — | — | 4 | `float` | `unverified_8C0` | Vertex stage only (11,481 occurrences): `t = t * F`, a multiplier of a vertex-stage vector component. Role not established. **Audit:** CPU: no reader in `nn::vfx2` (bytes at or beyond `0xCA0` are not in the GPU copy, below it the shader reads are the only consumers found). GPU stages reading it: V (V vertex, F fragment) across 14,423 shader programs. Corpus: 65 distinct values, most common `00000000` x9,582, `00004040` x6,309, `0000803f` x1,617. |
+| `0x8C4` | — | — | 4 | `float` | `unverified_8C4` | Fragment stage only (4,980 occurrences): `1.0 / F` (4,883) or reinterpreted as an integer (97). Role not established. **Audit:** CPU: no reader in `nn::vfx2` (bytes at or beyond `0xCA0` are not in the GPU copy, below it the shader reads are the only consumers found). GPU stages reading it: F (V vertex, F fragment) across 14,423 shader programs. Corpus: 67 distinct values, most common `0000803f` x8,272, `00000000` x8,066, `0000003f` x2,137. |
+| `0x8C8`–`0x8CF` | — | — | 8 | `bytes[8]` | `unverified_8C8_8CF` | No shader read; `UpdateParams` only uses `0x8C0/0x8C8` as the source of a strided copy for the keyframe padding of a different array, not for this offset. **Audit:** CPU: no reader in `nn::vfx2` (bytes at or beyond `0xCA0` are not in the GPU copy, below it the shader reads are the only consumers found). GPU stages reading it: none (V vertex, F fragment) across 14,423 shader programs. Corpus: all-zero in 25,261/25,261 emitters. |
 | `0x8D0` | `0x600` | `+0x2D0` | 128 | `float[8][4]` | `kf_scale` | Scale XYZ keyframes `(val.xyz, time.w)` (`UpdateParams:L854`). |
-| `0x950` | `0x680` | `+0x2D0` | 128 | `float[8][4]` | `kf_track5` | Generic track-5 keyframe array. `UpdateParams` pads its final key to eight entries; higher-level consumer semantics are unverified. |
-| `0x9D0` | â€” | TotK only | 128 | `float[8][4]` | `kf_track6` | Generic track-6 keyframe array with the same padding behavior. |
-| `0xA50` | â€” | TotK only | 128 | `float[8][4]` | `kf_track7` | Generic track-7 keyframe array with the same padding behavior. |
-| `0xAD0` | â€” | TotK only | 128 | `float[8][4]` | `kf_track8` | Generic track-8 keyframe array with the same padding behavior. |
-| `0xB50` | â€” | TotK only | 128 | `float[8][4]` | `kf_track9` | Generic track-9 keyframe array with the same padding behavior. |
-| `0xC10`â€“`0xC5F` | â€” | TotK only | `0x50` | `bytes[0x50]` | `rotation_modulation_core` | Three-lane rotation-modulation coefficients consumed by `CalculateRotationMatrix`; the exact individual coefficient roles are still being separated. `UpdateParams` clears lane components when the corresponding `E00..E02` byte is zero. This is not a normal-matrix buffer. |
+| `0x950` | `0x680` | `+0x2D0` | 128 | `float[8][4]` | `kf_track5` | Generic track-5 keyframe array (key count `0x94`). `UpdateParams` pads it exactly like the Color/Alpha/Scale arrays: keys `count..7` copy key `count-1` and add the index to the time `w` (`0x710000BBE4`), the same arithmetic as SDK `staticUbo.shaderAnim` padding (`vfx_EmitterRes.cpp:660-665`), so the array has the SDK `shaderAnim` shape. GPU: the vertex stage reads components `x` and `w` of all eight keys (a scalar track); no fragment or compute program reads it. Which shader quantity it drives is not established (it is not interpreted by the CPU). |
+| `0x9D0` | â€” | TotK only | 128 | `float[8][4]` | `kf_track6` | Generic track-6 keyframe array with the same padding behavior. GPU: the vertex stage reads components `x, y, z, w` of all eight keys (a vec3-style track). Consumer semantics beyond the shader reads are unverified. |
+| `0xA50` | â€” | TotK only | 128 | `float[8][4]` | `kf_track7` | Generic track-7 keyframe array with the same padding behavior. GPU: the vertex stage reads 25 of the 32 float components across all eight keys. Consumer semantics beyond the shader reads are unverified. |
+| `0xAD0` | â€” | TotK only | 128 | `float[8][4]` | `kf_track8` | Generic track-8 keyframe array with the same padding behavior. GPU: the vertex stage reads only key 0 `x, y, z`. Consumer semantics beyond the shader reads are unverified. |
+| `0xB50` | â€” | TotK only | 128 | `float[8][4]` | `kf_track9` | Generic track-9 keyframe array with the same padding behavior. GPU: no shader program in the 1,088 shipped shader archives reads any byte of it. Consumer semantics beyond the shader reads are unverified. |
+| `0xBD0`–`0xC0F` | — | — | 64 | `float[16]` | `unverified_shader_param_BD0_C0F` | Four `vec4`s read by both vertex and fragment stages (`BD0`, `BE0`, `BF0`, `C00` slots). The same offset is used with different roles in different programs (`min`/`max` clamp bound, `0.0 - F` subtraction operand, multiplier, `t + F`, `fma(t, F, t)`), so the interpretation depends on the shader program rather than on a single fixed field. Counts of reads per component: `BD0` 4,173, `BD4` 2,992, `BD8` 2,731, `BDC` 2,210, `BE0` 1,830, `BE4` 1,088, `BE8` 842, `BEC` 535, `BF0` 972, `BF4` 591, `BF8` 496, `BFC` 599, `C00` 848, `C04` 390, `C08` 413, `C0C` 436. One program uses `data[190].y * 0.0174532924` (degrees to radians) on `BE4`, so at least one program treats a component as an angle in degrees. **Audit:** CPU: no reader in `nn::vfx2` (bytes at or beyond `0xCA0` are not in the GPU copy, below it the shader reads are the only consumers found). GPU stages reading it: FV (V vertex, F fragment) across 14,423 shader programs. Corpus: 898 distinct values, most common `00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000` x20,455, `0000803f000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000` x388, `6666e63f0000003fcdcc0c3f0000003fcdcc4c3f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000` x191. |
+| `0xC10` | â€” | TotK only | 12 | `float[3]` | `rotation_initial_xyz` | Per-axis initial rotation vector. `UpdateParams` clears each lane when the corresponding `0xE00..0xE02` enable byte is zero; this vector supplies the initial rotation input later passed to `CalculateRotationMatrix`. |
+| `0xC1C`–`0xC1F` | — | — | 4 | `bytes[4]` | `unverified_C1C_C1F` | Not a documented field. **Audit:** CPU: no reader found in the traced functions (the immediate-offset scan is not discriminating below `0xCA0` because many other structs share those offsets). GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: all-zero in 25,261/25,261 emitters. |
+| `0xC20` | â€” | TotK only | 12 | `float[3]` | `rotation_initial_random_xyz` | Per-axis initial-rotation random range. `CalculateRotationMatrix` adds `value * (particleRandom - 0.5)` independently to X, Y, and Z. Disabled axes are cleared by `UpdateParams`. |
+| `0xC2C`–`0xC2F` | — | — | 4 | `bytes[4]` | `unverified_C2C_C2F` | Not a documented field. **Audit:** CPU: no reader found in the traced functions (the immediate-offset scan is not discriminating below `0xCA0` because many other structs share those offsets). GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: all-zero in 25,261/25,261 emitters. |
+| `0xC30` | â€” | TotK only | 12 | `float[3]` | `rotation_add_xyz` | Per-axis rotation increment. `CalculateRotationMatrix` integrates this vector over particle time; disabled axes are cleared by `UpdateParams`. |
+| `0xC3C` | â€” | TotK only | 4 | `float` | `rotation_add_attenuation` | Per-frame attenuation base for the rotation increment. The evaluator computes `pow(value, time)` and uses `(1 - pow(value,time)) / (1 - value)` as the accumulated increment factor; `value == 1` reduces to the elapsed time. |
+| `0xC40` | â€” | TotK only | 12 | `float[3]` | `rotation_add_random_xyz` | Random range for the rotation increment. The evaluator adds each lane times the average of a corresponding pair of per-particle random components before time integration. Disabled axes are cleared by `UpdateParams`. |
+| `0xC4C` | — | — | 4 | `bytes[4]` | `unverified_C4C` | No shader or CPU read. **Audit:** CPU: no reader in `nn::vfx2` (bytes at or beyond `0xCA0` are not in the GPU copy, below it the shader reads are the only consumers found). GPU stages reading it: none (V vertex, F fragment) across 14,423 shader programs. Corpus: all-zero in 25,261/25,261 emitters. |
+| `0xC50` | — | — | 4 | `float` | `unverified_C50` | Vertex stage: used both as `min(len, F)` and as `1.0 / F` on a length (`temp_1024 = min(length, F); temp_991 = 1.0 / F`), i.e. a clamp bound and normalizer of a length in the stripe/mesh vertex path. **Audit:** CPU: no reader in `nn::vfx2` (bytes at or beyond `0xCA0` are not in the GPU copy, below it the shader reads are the only consumers found). GPU stages reading it: V (V vertex, F fragment) across 14,423 shader programs. Corpus: 73 distinct values, most common `00004842` x12,493, `00000000` x4,097, `0000a040` x2,302. |
+| `0xC54` | — | — | 4 | `float` | `unverified_C54` | Vertex stage: used as `max(x, F)` and `1.0 / F` in sibling programs (`temp_643 = max(temp_618, F); temp_830 = 1.0 / F`), a lower clamp/normalizer of a length. **Audit:** CPU: no reader in `nn::vfx2` (bytes at or beyond `0xCA0` are not in the GPU copy, below it the shader reads are the only consumers found). GPU stages reading it: V (V vertex, F fragment) across 14,423 shader programs. Corpus: 44 distinct values, most common `0000c842` x8,558, `00004842` x8,297, `00000000` x6,324. |
+| `0xC58`–`0xC5F` | — | — | 8 | `bytes[8]` | `unverified_C58_C5F` | No shader or CPU read. **Audit:** CPU: no reader in `nn::vfx2` (bytes at or beyond `0xCA0` are not in the GPU copy, below it the shader reads are the only consumers found). GPU stages reading it: none (V vertex, F fragment) across 14,423 shader programs. Corpus: all-zero in 25,261/25,261 emitters. |
 | `0xC60` | â€” | TotK only | 12 | `float[3]` | `rotation_wave_amplitude_xyz` | Per-axis amplitude used by the rotation waveform branches. |
+| `0xC6C`–`0xC6F` | — | — | 4 | `bytes[4]` | `unverified_C6C_C6F` | Not a documented field. **Audit:** CPU: no reader found in the traced functions (the immediate-offset scan is not discriminating below `0xCA0` because many other structs share those offsets). GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: all-zero in 25,261/25,261 emitters. |
 | `0xC70` | â€” | TotK only | 12 | `float[3]` | `rotation_wave_period_xyz` | Per-axis divisor in `(time_offset + particle_time) / period`. Defaults to `1.0` per lane when `E00..E02` is zero. |
+| `0xC7C`–`0xC7F` | — | — | 4 | `bytes[4]` | `unverified_C7C_C7F` | Not a documented field. **Audit:** CPU: no reader found in the traced functions (the immediate-offset scan is not discriminating below `0xCA0` because many other structs share those offsets). GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: all-zero in 25,261/25,261 emitters. |
 | `0xC80` | â€” | TotK only | 12 | `float[3]` | `rotation_wave_time_offset_xyz` | Per-axis time offsets. |
+| `0xC8C`–`0xC8F` | — | — | 4 | `bytes[4]` | `unverified_C8C_C8F` | Not a documented field. **Audit:** CPU: no reader found in the traced functions (the immediate-offset scan is not discriminating below `0xCA0` because many other structs share those offsets). GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: all-zero in 25,261/25,261 emitters. |
 | `0xC90` | â€” | TotK only | 12 | `float[3]` | `rotation_wave_random_phase_xyz` | Per-axis multipliers for the particle-random phase term. |
+| `0xC9C`–`0xC9F` | — | — | 4 | `bytes[4]` | `unverified_C9C_C9F` | Not a documented field. **Audit:** CPU: no reader found in the traced functions (the immediate-offset scan is not discriminating below `0xCA0` because many other structs share those offsets). GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: all-zero in 25,261/25,261 emitters. |
 | `0xCA0` | `0x748` | `+0x558` | 1 | `uint8` | `sim_flags` | Simulation flag; copied into runtime flag bit 13 in `Emitter::Initialize` (`0x7100001900`). |
 | `0xCA1` | `0x749` | `+0x558` | 1 | `uint8` | `particle_sort_mode_index` | Passed by `EmitterCalculator::EntrySortedParticle` to `System::GetSortedParticleList`. `0` takes the no-sort/default path, `1` and `3` sort the per-particle scalar stored at vector offset `+0xC` in opposite orders, `2` computes a camera-space depth key, and `4` invokes the custom sort callback. Friendly Nintendo enum names remain unproven. |
 | `0xCA2` | `0x752` | `+0x550` | 1 | `uint8` | `emitter_calc_type` | Mode: 0 = CPU, 2 = GPU compute; copied into runtime flag bits 14â€“16 (`0x7100001900`). |
 | `0xCA3` | `0x74B` | `+0x558` | 1 | `uint8` | `velocity_coord` | Velocity coordinate space: 0 = Local, 1 = World (`CalculateParticle` `0x7100010968`). |
 | `0xCA4` | `0x757` | `+0x54D` | 1 | `uint8` | `seed_source` | Random seed source: 0 = Global, 1 = ESET, 2 = Fixed (`0x7100001900`). |
+| `0xCA5` | — | — | 1 | `uint8` | `update_matrix_by_emit` | Read at the tail of `Emitter::UpdateByEmit` (`0x7100003DF8`): a nonzero value calls `Emitter::CreateResMatrix` after the emission interval is computed. The executable matches SDK `emitter.isUpdateMatrixByEmit` (`vfx_Emitter.cpp:758`) exactly: `if (!isUpdateMatrixByEmit) return; CreateResMatrix();`. |
+| `0xCA6`–`0xCA7` | — | — | 2 | `bytes[2]` | `unverified_CA6_CA7` | Not a documented field. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: 4 distinct values, most common `0000` x24,590, `0101` x279, `0100` x215. |
+| `0xCA8` | — | — | 1 | `uint8` | `fade_emit_stop` | While the emitter is fading (`Emitter::Calculate`, `0x710000FEBC`, near `0x710001040C`), a nonzero value clears the emit permission (`isEmit &= (value == 0)`), preceding the fade-out alpha/scale handling driven by `0xCAB/0xCAC/0xCB8`. This is the same control flow as SDK `emitter.isFadeEmit` (`vfx_EmitterCalc.cpp:643`). |
 | `0xCA9` | `0x75B` | `+0x54E` | 1 | `uint8` | `fade_in_curve` | Fade-in alpha curve selector: 0=Off, 1=Lin, 2=Quad, 3=Quart (`0x7100004048`). |
 | `0xCAA` | `0x75C` | `+0x54E` | 1 | `uint8` | `fade_in_scale` | Fade-in scale enable flag (`Emitter::GetScaleRate` `0x7100004158`). |
 | `0xCAB` | `0x755` | `+0x556` | 1 | `uint8` | `fade_out_curve` | Fade-out alpha curve selector: 0=Off, 1=Lin, 2=Quad, 3=Quart (`0x71000040A8`). |
 | `0xCAC` | `0x756` | `+0x556` | 1 | `uint8` | `fade_out_scale` | Fade-out scale enable flag (`Emitter::GetScaleRate` `0x7100004158`). |
+| `0xCAD`–`0xCAF` | — | — | 3 | `bytes[3]` | `unverified_CAD_CAF` | Not a documented field. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: 2 distinct values, most common `000000` x25,037, `010000` x224. |
 | `0xCB0` | `0x760` | `+0x550` | 4 | `uint32` | `fixed_seed` | Fixed seed value when `seed_source == 2` (`0x7100001900`). |
+| `0xCB4` | — | — | 4 | `uint32` | `draw_path` | `EmitterSet::CreateEmitter` (`0x7100009318`, `0x71000093D4`) loads this word and passes it to the setter at `0x71007BB174` (`str w1,[emitter,#0x38]`). `EmitterSet::DrawEmitter` (`0x710000A018`) draws the emitter only when `(1 << (emitter[0x38] & 0x1F)) & drawPathMask` is nonzero. This matches SDK `emitter.drawPath` / `Emitter::SetDrawPath`. |
 | `0xCB8` | `0x768` | `+0x550` | 4 | `int32` | `fade_out_time` | Fade-out timing divisor in frames (`Emitter::Calculate` `0x710000FEBC`). |
 | `0xCBC` | `0x76C` | `+0x550` | 4 | `int32` | `fade_in_time` | Fade-in timing divisor in frames (`Emitter::Calculate` `0x710000FEBC`). |
 | `0xCC0` | `0x770` | `+0x550` | 12 | `float[3]` | `emitter_trans_xyz` | Emitter base translation coordinates XYZ (`Emitter::ResourceUpdate` `0x7100002000`). |
 | `0xCCC` | `0x77C` | `+0x550` | 12 | `float[3]` | `emitter_trans_rnd` | Emitter translation random range XYZ (`0x7100002000`). |
 | `0xCD8` | `0x788` | `+0x550` | 12 | `float[3]` | `emitter_rot_xyz` | Emitter base Euler rotation XYZ in radians (`CreateResMatrix:L50-58`). |
 | `0xCE4` | `0x794` | `+0x550` | 12 | `float[3]` | `emitter_rot_rnd` | Emitter rotation random range XYZ in radians (`CreateResMatrix:L52-67`). |
-| `0xCF0` | `0x798` | `+0x558` | 12 | `float[3]` | `rot_velocity_xyz` | Per-particle angular velocity in rad/sec (`UpdateParams:L1563`). |
-| `0xCFC` | `0x7A4` | `+0x558` | 12 | `float[3]` | `rot_vel_random_xyz` | Angular velocity random variance range. |
+| `0xCF0` | `0x798` | `+0x558` | 12 | `float[3]` | `emitter_scale_xyz` | Emitter base scale XYZ. `Emitter::CreateResMatrix` multiplies the three columns of the resource rotation basis by `0xCF0`, `0xCF4`, and `0xCF8`; `UpdateParams` builds the corresponding cached scaled matrices from the same values. The previous angular-velocity label was incorrect. |
+| `0xCFC` | `0x7A4` | `+0x558` | 12 | `float[3]` | `emitter_color0_rgb` | Base RGB multiplier for emitter Color0. `Emitter::ResourceUpdate` copies it to animation-vector lane 3 at live `Emitter + 0x3FC`; the particle Color0 evaluator consumes that lane as the emitter-animation RGB multiplier. |
+| `0xD08` | `0x7B0` | `+0x558` | 4 | `float` | `emitter_color0_alpha` | Base alpha multiplier for emitter Color0. `Emitter::ResourceUpdate` copies it to the scalar animation lane at live `Emitter + 0x42C`, which is passed into the Color0 evaluation path as its emitter alpha factor. |
+| `0xD0C` | `0x7B4` | `+0x558` | 12 | `float[3]` | `emitter_color1_rgb` | Base RGB multiplier for emitter Color1. Copied by `Emitter::ResourceUpdate` to animation-vector lane 4 at live `Emitter + 0x408`; the 14-lane animation loop updates this lane independently of Color0. |
+| `0xD18` | `0x7C0` | `+0x558` | 4 | `float` | `emitter_color1_alpha` | Base alpha multiplier for emitter Color1. Copied by `Emitter::ResourceUpdate` to its scalar animation lane at live `Emitter + 0x438`. |
+| `0xD1C`â€“`0xD27` | â€” | â€” | 12 | `bytes[12]` | `unverified_D1C_D27` | No unambiguous CPU-side consumer has been established. Preserve verbatim. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: outside the `0xCA0`-byte static uniform block, so no shader can read it. Corpus: 73 distinct values, most common `00000000000080bf00000000` x24,184, `000000000000204200000000` x171, `00000000000080bf0000f041` x151. |
 | `0xD28` | â€” | TotK only | 4 | `float` | `scale_fade_in_init`| Scale fade-in starting value used by `GetScaleRate` (`0x7100004158`). |
 | `0xD2C` | â€” | TotK only | 4 | `float` | `scale_fade_out_init`| Scale fade-out starting value used by `GetScaleRate` (`0x7100004158`). |
-| `0xD39` | `0x7E1` | `+0x558` | 1 | `uint8` | `unverified_D39` | The previous billboard-mode enum was not supported by a matching reader in the traced TotK draw, shader, emitter, or resource functions. |
-| `0xD3C` | â€” | TotK only | 1 | `uint8` | `child_alloc_flag` | Copied into runtime flag bit 17; tested when creating child emitters (`0x7100001900`). |
+| `0xD30` | â€” | â€” | 1 | `uint8` | `inherit_parent_velocity` | Nonzero makes `Emitter::InheritParentParticleInfo` add the parent particle's world velocity to the new child particle, scaled by `0xD40`. |
+| `0xD31` | â€” | â€” | 1 | `uint8` | `inherit_parent_scale` | Nonzero evaluates the parent particle's current animated scale and stores it on the child after multiplying by `0xD44`. |
+| `0xD32` | â€” | â€” | 1 | `uint8` | `inherit_parent_rotation` | Nonzero evaluates the parent particle's current rotation through `CalculateRotationMatrix` and stores the XYZ result on the child. |
+| `0xD33` | â€” | â€” | 1 | `uint8` | `unverified_D33` | No distinct reader has yet been established in the traced parent-inheritance path. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: outside the `0xCA0`-byte static uniform block, so no shader can read it. Corpus: all-zero in 25,261/25,261 emitters. |
+| `0xD34` | â€” | â€” | 1 | `uint8` | `inherit_parent_color0_rgb` | Nonzero evaluates parent Color0 and copies its RGB components to the child. |
+| `0xD35` | â€” | â€” | 1 | `uint8` | `inherit_parent_color1_rgb` | Nonzero evaluates parent Color1 and copies its RGB components to the child. |
+| `0xD36` | â€” | â€” | 1 | `uint8` | `inherit_parent_alpha0` | Nonzero evaluates parent Color0 and copies its alpha component to the child. |
+| `0xD37` | â€” | â€” | 1 | `uint8` | `inherit_parent_alpha1` | Nonzero evaluates parent Color1 and copies its alpha component to the child. |
+| `0xD38` | — | — | 1 | `uint8` | `unverified_D38` | Not a documented field. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: all-zero in 25,261/25,261 emitters. |
+| `0xD39` | `0x7E1` | `+0x558` | 1 | `uint8` | `child_pre_draw` | Child-emitter draw ordering. `EmitterSet::Draw` invokes `DrawEmitter(..., 1, ...)` before the parent and `DrawEmitter(..., 0, ...)` afterward; `EmitterSet::DrawEmitter` draws a child only when its serialized `0xD39` byte equals that pass argument. Thus `1` draws before the parent and `0` after it. |
+| `0xD3A` | — | — | 1 | `uint8` | `inherit_parent_alpha0_each_frame` | Read together with `0xD36` while evaluating inherited Color0 alpha: when both bytes are nonzero the child alpha is additionally multiplied by the parent's per-frame value (`parent + 0x42C`) at `0x71000118F4`. Matches SDK `inherit.alpha0 && inherit.alpha0EachFrame` (`vfx_EmitterCalc.cpp:1261`). |
+| `0xD3B` | — | — | 1 | `uint8` | `inherit_parent_alpha1_each_frame` | Same as `0xD3A` for Color1/Alpha1, gated with `0xD37` (`0x7100011910`). Matches SDK `inherit.alpha1EachFrame`. |
+| `0xD3C` | â€” | TotK only | 1 | `uint8` | `inherit_enable_emitter_particle` | Selects normal child-emitter behavior when nonzero versus the lightweight child path when zero. `Emitter::Initialize` copies it to runtime flag bit 17; `Emitter::CalculateParticle` uses it when propagating parent time/life state and child-emission work. This is the executable behavior of `inherit.enableEmitterParticle`. |
+| `0xD3D`–`0xD3F` | — | — | 3 | `bytes[3]` | `unverified_D3D_D3F` | Not a documented field. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: all-zero in 25,261/25,261 emitters. |
+| `0xD40` | â€” | â€” | 4 | `float` | `inherit_parent_velocity_rate` | Multiplier applied to the inherited parent world-velocity vector when `0xD30` is enabled. |
+| `0xD44` | â€” | â€” | 4 | `float` | `inherit_parent_scale_rate` | Multiplier applied to the evaluated parent particle scale when `0xD31` is enabled. |
 | `0xD48` | `0x7F0` | `+0x558` | 1 | `uint8` | `emit_loop_mode` | Loop mode: 0 = Infinite / Loop, 1 = One-Shot (`UpdateParams:L1604`). |
 | `0xD49` | `0x7F1` | `+0x558` | 1 | `uint8` | `gravity_coord` | Gravity vector coordinate space: 0 = World, 1 = Local (`CalculateParticleBehavior:L95`). |
 | `0xD4A` | `0x7F2` | `+0x558` | 1 | `uint8` | `emit_dist_enable` | `emission.isEmitDistEnabled`. `Emitter::Initialize` sets runtime flag bit 21 from it; `CalculateRequiredParticleAsignmentCount` then uses `0xD8C` as the particle count (SDK `vfx_Emitter.cpp:223-228`). |
+| `0xD4B` | â€” | â€” | 1 | `uint8` | `designated_direction_transform_enable` | Nonzero makes `FUN_71000127F0` transform `designated_direction_xyz` through the emitter coordinate basis before applying its speed. Zero uses the serialized vector directly. A stronger editor-facing coordinate-space name is not asserted. |
 | `0xD4C` | `0x7F4` | `+0x558` | 4 | `uint32` | `emit_start_delay` | Delay before emission starts in frames. |
 | `0xD50` | `0x7F8` | `+0x558` | 4 | `uint32` | `child_emit_timing` | Converted with `ucvtf` and used as a percentage (`/100`) of the parent particle lifetime (`CalculateParticle`). |
 | `0xD54` | `0x7FC` | `+0x558` | 4 | `uint32` | `emit_duration` | Active emission duration in frames. `CalculateRequiredParticleAsignmentCount` uses it as `duration/(interval+1)`; `UpdateParams` clamps `0xD60` to it for one-shot, non-distance emitters; `CalculateParticle` adds it to the start time (SDK `emission.emitDuration`). |
 | `0xD58` | `0x800` | `+0x558` | 4 | `float` | `emit_rate` | Particles per frame (`TryEmitParticle` reads it as float). |
 | `0xD5C` | `0x804` | `+0x558` | 1 | `uint8` | `emit_rate_random_percent` | `TryEmitParticle` reads exactly one byte and applies it as a percentage variation to the emission rate. `0xD5D..0xD5F` remain padding/unverified; no wider TotK read has been established. |
+| `0xD5D`–`0xD5F` | — | — | 3 | `bytes[3]` | `unverified_D5D_D5F` | Not a documented field. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: all-zero in 25,261/25,261 emitters. |
 | `0xD60` | `0x808` | `+0x558` | 4 | `int32` | `emit_interval` | `UpdateByEmit` computes `(D60 + 1) + random(D64)`, identical to SDK `vfx_Emitter.cpp:761` (`interval + 1.0f + GetInteger(intervalRandom)`). |
 | `0xD64` | `0x80C` | `+0x558` | 4 | `int32` | `emit_interval_random` | Upper bound of the random range in `UpdateByEmit` (`emission.intervalRandom`). |
+| `0xD68` | — | — | 4 | `float` | `emission_direction_table_offset_scale` | Read by the initial-direction helper `FUN_71000127F0` (`0x71000127F0`, the `Emit` body) immediately after the `0xF14` tangent stage and before the `0xF10` spread. When nonzero it executes `direction += g_NormalizedVec3Table[counter++ & 0x1FF] * value`, where the per-emitter 16-bit counter is at `Emitter + 0x4A2` and the table is the 512-entry normalized-vector table at `PTR_g_NormalizedVec3Table_7104616c60`. The counter walk is a deterministic table step, not an RNG draw; whether the editor calls this `direction random` is not established, so only the arithmetic is asserted. |
+| `0xD6C` | â€” | â€” | 4 | `float` | `gravity_scale` | Base value for animation lane 13. `ResolveBinaryData` binds lane 13 to the `EAGV` attribute; `Emitter::ResourceUpdate` copies `0xD6C` to live `Emitter + 0x474`, and `CalculateParticleBehavior` multiplies `gravity_xyz` by this lane before integrating acceleration. |
 | `0xD70` | `0x818` | `+0x558` | 12 | `float[3]` | `gravity_xyz` | Constant acceleration / gravity vector XYZ (`CalculateParticleBehavior:L92-94`). |
 | `0xD7C` | - | TotK only | 4 | `float` | `emit_dist_unit` | Distance-emission step: `TryEmitParticle` divides the clamped length by it (SDK `emitDistUnit`, `vfx_EmitterCalc.cpp:202-216`). |
 | `0xD80` | - | TotK only | 4 | `float` | `emit_dist_min` | Lower clamp of the (scaled) travelled length (SDK `emitDistMin`). |
@@ -144,28 +332,38 @@ The VFXB resource-node header is a separate `0x20`-byte structure. `Resource::In
 | `0xD90` | `0x838` | `+0x558` | 1 | `uint8` | `shape_type` | Direct index into `g_EmitFunctions`: 0=Point, 1=Circle, 2=CircleEquallyDivided, 3=CircleFill, 4=Sphere, 5=SphereEqually32Divided, 6=SphereEqually64Divided, 7=SphereFill, 8=Cylinder, 9=CylinderFill, 10=Box, 11=BoxFill, 12=Line, 13=LineEquallyDivided, 14=Rectangle, 15=Primitive (`Emitter::InitializeParticle` `0x7100012188`; table at `0x71041AA110`). |
 | `0xD91` | `0x839` | `+0x558` | 1 | `uint8` | `shape_angle_mode` | Shape angle calculation mode: 0=Static, 1=Time-varying (`CalculateEmitCircle:L24`). |
 | `0xD92` | `0x83A` | `+0x558` | 1 | `uint8` | `shape_rot_mode` | Shape orientation mode (`CalculateEmitSphere:L102`). |
+| `0xD93` | â€” | â€” | 1 | `uint8` | `sphere_direction_table_index` | Indexes both the built-in equally-divided-sphere direction-table pointer array and its matching entry-count array in `CalculateEmitSphereEqually32Divided`. |
+| `0xD94` | — | — | 1 | `uint8` | `sphere64_division_count` | Used only by shape 6 (`CalculateEmitSphereEqually64Divided`, `0x7100015A9C`): the byte is passed as `param_6`, selects the table pointer `Equally64DividedSphereTbl[param_6 - 2]` and is the modulus used to pick the entry (the shape-argument mode word at argument block `+0x3C`, which the `0xDE0` row maps to `0xDCC`, selects: `2` cycles a counter modulo it, `1` picks a random index below it, otherwise `particle_index % value`). `EmitterResource::UpdateParams` (jump-table branch for `0xD90 == 6`, `0x710000D9E4`) also overwrites `emit_rate` (`0xD58`) with `(float)value` when `0xDCC == 0`. Shape 5 uses the analogous `0xD93` table index. |
 | `0xD95` | `0x83E` | `+0x557` | 1 | `uint8` | `shape_rot_variant` | **1-byte packing delta**. Basis frame variant (`CalculateEmitSphereFill:L183`). |
+| `0xD96`–`0xD97` | — | — | 2 | `bytes[2]` | `unverified_D96_D97` | Not a documented field. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: all-zero in 25,261/25,261 emitters. |
 | `0xD98` | `0x840` | `+0x558` | 4 | `float` | `shape_angle_b` | Emission arc spread in radians (`CalculateEmitCircle:L20`). |
 | `0xD9C` | `0x844` | `+0x558` | 4 | `float` | `shape_angle_c` | Elevation / latitude cone angle in radians (`CalculateEmitSphere:L101`). |
 | `0xDA0` | `0x848` | `+0x558` | 4 | `float` | `shape_angle_d` | Initial phase angle offset in radians (`CalculateEmitCircle:L21`). |
+| `0xDA4`–`0xDA7` | — | — | 4 | `bytes[4]` | `unverified_DA4_DA7` | Not a documented field. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: 30 distinct values, most common `00000000` x22,863, `c2b8323e` x487, `920a063f` x355. |
 | `0xDA8` | `0x850` | `+0x558` | 4 | `float` | `shape_fill_ratio` | Interior-fill amount used by circle, sphere, and box fill emitters. The generated radial factor proves `0.0` produces the outer shell/perimeter and `1.0` permits the full interior volume (`CalculateEmitCircleFill` `0x7100013B1C`; `CalculateEmitSphereFill` `0x710001486C`; `CalculateEmitBoxFill` `0x71000150CC`). |
 | `0xDAC` | `0x854` | `+0x558` | 4 | `float` | `line_center_bias` | Appears in the line-position expression `length * (random - (1 + value) / 2)`, shifting the sampled line interval without defining its length (`CalculateEmitLine` `0x7100015300`; `CalculateEmitLineEquallyDivided` `0x7100015388`). |
 | `0xDB0` | `0x858` | `+0x558` | 4 | `float` | `line_length` | Multiplied by the Z component of the emitter scale and used as the line segment length (`CalculateEmitLine` `0x7100015300`; `CalculateEmitLineEquallyDivided` `0x7100015388`). |
 | `0xDB4` | `0x85C` | `+0x558` | 12 | `float[3]` | `shape_radius_xyz` | Shape semi-axis radii along X, Y, Z (`CalculateEmitCircle:L49`). |
+| `0xDC0` | â€” | â€” | 12 | `float[3]` | `emitter_volume_scale_xyz` | Base emitter-volume scale. `ResolveBinaryData` binds animation lane 12 to `EASS`; `Emitter::ResourceUpdate` copies this vector to live `Emitter + 0x468`, and the shape emitters multiply their radii or line extent by its X/Y/Z components. |
 | `0xDCC` | â€” | TotK only | 4 | `int32` | `primitive_dist_mode`| 0 = Divided checks, 1/2 = Primitive indexing paths (`CalculateEmitPrimitive` `0x71000155FC`). |
 | `0xDD0` | `0x878` | `+0x558` | 8 | `uint64` | `mesh_primitive_idx`| G3D primitive index used by `Resource::InitializeEmitterGraphicsResource` (`0x710001E650`). |
 | `0xDD8` | `0x880` | `+0x558` | 4 | `int32` | `shape_divisions` | Slice division count for equally divided circle shapes. |
+| `0xDDC` | — | — | 4 | `uint32` | `circle_division_random_reduction_percent` | Read as an unsigned integer by `EmitterCalculator::Emit` (`0x71000127EC`) when `0xDCC == 0` and `0xD90 == 2` (CircleEquallyDivided): the repeat count becomes `(0xDD8 - (int)(U * value * 0.01 * 0xDD8)) * count`, with `U` the emit-time uniform random float. This is the circle counterpart of `0xDE4`, which `Emit` applies the same way when `0xD90 == 13`. |
+| `0xDE0` | â€” | â€” | 4 | `uint32` | `line_division_count` | Number of positions used by `CalculateEmitLineEquallyDivided`. Mode `0xDCC == 2` cycles a live counter modulo this count; mode `1` chooses a random index. |
+| `0xDE4` | â€” | â€” | 4 | `uint32` | `line_division_reduction_percent` | In `0xDCC == 0`, `CalculateEmitLineEquallyDivided` converts this unsigned integer to float and reduces the active division count by `value * normalized_time * 0.01 * division_count`. |
 | `0xDE8` | `0x898` | `+0x550` | 1 | `uint8` | `blend_target_enable` | Passed as the blend target's enable bit by `Rendercontext::Initialize`. This trace does not establish a general color-write-mask meaning. |
-| `0xDE9` | `0x899` | `+0x550` | 1 | `uint8` | `unverified_DE9` | No reader found in the traced TotK render-state path. |
+| `0xDE9` | `0x899` | `+0x550` | 1 | `uint8` | `unverified_DE9` | No reader found in the traced TotK render-state path. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: outside the `0xCA0`-byte static uniform block, so no shader can read it. Corpus: 2 distinct values, most common `01` x23,536, `00` x1,725. |
 | `0xDEA` | `0x89A` | `+0x550` | 1 | `uint8` | `depth_stencil_mode_index` | Required to be below 8 and written directly into the first byte of `DepthStencilStateInfo`. The exact Nintendo-facing enum name is not established (`Rendercontext::Initialize` `0x710001C148`). |
 | `0xDEB` | `0x89B` | `+0x550` | 1 | `uint8` | `depth_sort_ascending` | Used only by the `0xCA1 == 2` camera-depth sorting path in `System::GetSortedParticleList`. Zero selects descending float-key order; nonzero selects ascending float-key order. It is not consumed by `Rendercontext::Initialize`. |
-| `0xDEC` | `0x89C` | `+0x550` | 1 | `uint8` | `unverified_DEC` | No reader found in the traced TotK render-state path. |
-| `0xDED` | `0x89D` | `+0x550` | 1 | `uint8` | `unverified_DED` | No reader found in the traced TotK render-state path. |
+| `0xDEC` | `0x89C` | `+0x550` | 1 | `uint8` | `unverified_DEC` | No reader found in the traced TotK render-state path. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: outside the `0xCA0`-byte static uniform block, so no shader can read it. Corpus: 2 distinct values, most common `01` x24,473, `00` x788. |
+| `0xDED` | `0x89D` | `+0x550` | 1 | `uint8` | `unverified_DED` | No reader found in the traced TotK render-state path. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: outside the `0xCA0`-byte static uniform block, so no shader can read it. Corpus: 3 distinct values, most common `04` x25,158, `06` x96, `07` x7. |
 | `0xDEE` | `0x89E` | `+0x550` | 1 | `uint8` | `blend_mode_index` | Values below 6 select one of six packed blend-state configurations. Friendly mode names are not assigned until those configurations are decoded (`Rendercontext::Initialize` `0x710001C148`). |
-| `0xDEF` | `0x89F` | `+0x550` | 1 | `uint8` | `cull_mode_index` | Input values map to rasterizer values as 0→0, 1→2, and 2→1 (`Rendercontext::Initialize` `0x710001C148`). Friendly front/back labels are not yet proven. |
-| `0xDF0` | `0x8A0` | `+0x550` | 4 | `float` | `unverified_DF0` | No reader found in the traced TotK render-state path. |
+| `0xDEF` | `0x89F` | `+0x550` | 1 | `uint8` | `cull_mode_index` | `Rendercontext::Initialize` maps serialized values `0`, `1`, and `2` to `nn::gfx` cull modes None, Back, and Front respectively (the raw rasterizer enum values are `0`, `2`, and `1`). |
+| `0xDF0` | `0x8A0` | `+0x550` | 4 | `float` | `unverified_DF0` | No reader found in the traced TotK render-state path. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: outside the `0xCA0`-byte static uniform block, so no shader can read it. Corpus: 17 distinct values, most common `00000000` x21,949, `0000003f` x3,019, `0ad7233c` x111. |
+| `0xDF4`–`0xDF7` | — | — | 4 | `bytes[4]` | `unverified_DF4_DF7` | Not a documented field. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: all-zero in 25,261/25,261 emitters. |
 | `0xDF8` | `0x8A8` | `+0x550` | 1 | `uint8` | `emit_infinite_flag`| Infinite emitter lifetime flag: 1 = Infinite (`UpdateParams:L1608`). |
 | `0xDF9` | `0x8A9` | `+0x550` | 1 | `uint8` | `is_trimming_prim` | Trim primitive enable flag (`Resource::InitializeEmitterGraphicsResource` `0x710001E650`). |
+| `0xDFA`–`0xDFB` | — | — | 2 | `bytes[2]` | `unverified_DFA_DFB` | Not a documented field. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: 24 distinct values, most common `0004` x12,348, `0304` x3,832, `0104` x2,578. |
 | `0xDFC` | `0x8AC` | `+0x550` | 1 | `uint8` | `shader_mode_index_DFC` | `ShaderFlag::Initialize` maps value `0` to shader-flag word 1 bit `0x80000` and value `1` to bit `0x100000`. That use alone does not prove the previous `sort_mode` label. |
 | `0xDFD` | â€” | TotK only | 1 | `uint8` | `rotation_random_sign_x_enable` | Enables a per-particle random sign inversion in the X rotation-output path; also sets shader-flag word 0 bit 28. |
 | `0xDFE` | â€” | TotK only | 1 | `uint8` | `rotation_random_sign_y_enable` | Y rotation-output equivalent; also sets shader-flag word 0 bit 29. |
@@ -175,10 +373,12 @@ The VFXB resource-node header is a separate `0x20`-byte structure. `Resource::In
 | `0xE02` | â€” | TotK only | 1 | `uint8` | `rotation_param_lane2_enable`| Lane-2 equivalent across offsets ending in `...18/28/38/48/68/78/88/98`. |
 | `0xE03` | â€” | TotK only | 1 | `uint8` | `shader_opt_flag3` | Shader flag bit 18 in `param_1[1]` (`ShaderFlag::Initialize:L338`). |
 | `0xE04` | â€” | TotK only | 1 | `uint8` | `shader_opt_flag4` | Shader flag bit 0 in `param_1[2]` (`ShaderFlag::Initialize:L348-355`). |
+| `0xE05`–`0xE07` | — | — | 3 | `bytes[3]` | `unverified_E05_E07` | Not a documented field. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: 6 distinct values, most common `000000` x20,242, `010000` x4,698, `000001` x266. |
 | `0xE08` | `0x8B8` | `+0x550` | 4 | `uint32` | `particle_lifespan` | Base particle lifetime in frames. `EmitterResource::UpdateParams` copies it into the runtime lifetime slot when no lifetime animation is present; `Emitter::ResourceUpdate` converts that slot to float; `Emitter::InitializeParticle` stores the resulting value in the particle record; and `Emitter::CalculateParticle` kills the particle when `current_time - birth_time >= lifetime`. |
 | `0xE0C` | `0x8BC` | `+0x550` | 1 | `uint8` | `particle_lifespan_random_percent`| Unsigned downward lifetime variation. `InitializeParticle` computes `base_lifetime * (1 - floor(random_u32 * value / 2^32) * 0.01)` and stores the result as the particle's lifetime. |
+| `0xE0D`–`0xE0F` | — | — | 3 | `bytes[3]` | `unverified_E0D_E0F` | Not a documented field. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: all-zero in 25,261/25,261 emitters. |
 | `0xE10` | `0x8C0` | `+0x550` | 4 | `float` | `particle_attribute_w_random_amplitude` | Not a fade duration. `InitializeParticle` writes `1 + value - 2 * value * U`, for `U` derived from a uniform 32-bit RNG, to the W component of the per-particle vector whose XYZ components hold initial scale. This proves a symmetric per-particle scalar range `[1-value, 1+value]`; its higher-level shader meaning is not yet established. |
-| `0xE14` | `0x8C4` | `+0x550` | 4 | `bytes[4]` | `unverified_E14` | No reader has been found in the traced particle initialization, update, lifetime, fade, resource-setup, or graphics-resource paths. The previous `particle_fade_out` label had no executable support. |
+| `0xE14` | `0x8C4` | `+0x550` | 4 | `bytes[4]` | `unverified_E14` | No reader has been found in the traced particle initialization, update, lifetime, fade, resource-setup, or graphics-resource paths. The previous `particle_fade_out` label had no executable support. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: outside the `0xCA0`-byte static uniform block, so no shader can read it. Corpus: 13 distinct values, most common `00000000` x12,943, `1b000000` x5,235, `13000000` x2,323. |
 | `0xE18` | `0x8C8` | `+0x550` | 8 | `uint64` | `g3d_primitive_idx` | Primary G3D primitive index used by `EmitterResource::Setup` (`0x710000B694`). |
 | `0xE20` | `0x8D0` | `+0x550` | 8 | `uint64` | `trim_primitive_idx`| Optional trim primitive index, read when `0xDF9` is set (`0x710001E650`). |
 | `0xE28` | `0x8D8` | `+0x550` | 1 | `uint8` | `loop_color0_enable`| Enables period wrapping for the Color0 key animation. |
@@ -191,6 +391,7 @@ The VFXB resource-node header is a separate `0x20`-byte structure. `Resource::In
 | `0xE2F` | `0x8DF` | `+0x550` | 1 | `uint8` | `loop_color1_random_phase` | Color1 equivalent of `0xE2D`. |
 | `0xE30` | `0x8E0` | `+0x550` | 1 | `uint8` | `loop_alpha1_random_phase` | Alpha1 equivalent of `0xE2D`. |
 | `0xE31` | `0x8E1` | `+0x550` | 1 | `uint8` | `loop_scale_random_phase` | Scale equivalent of `0xE2D`. |
+| `0xE32`–`0xE33` | — | — | 2 | `bytes[2]` | `unverified_E32_E33` | Not a documented field. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: all-zero in 25,261/25,261 emitters. |
 | `0xE34` | â€” | TotK only | 2 | `uint16` | `loop_color0_period_u16`| Color0 loop period in frames. |
 | `0xE36` | â€” | TotK only | 2 | `uint16` | `loop_alpha0_period_u16`| Alpha0 loop period in frames. |
 | `0xE38` | â€” | TotK only | 2 | `uint16` | `loop_color1_period_u16`| Color1 loop period in frames. |
@@ -201,39 +402,39 @@ The VFXB resource-node header is a separate `0x20`-byte structure. `Resource::In
 | `0xE42` | â€” | TotK only | 1 | `uint8` | `color1_key_interpolation_mode` | Passed directly to `Calculate8KeyAnim` for Color1. |
 | `0xE43` | â€” | TotK only | 1 | `uint8` | `alpha1_key_interpolation_mode` | Passed directly to `Calculate8KeyAnim` for Alpha1. |
 | `0xE44` | â€” | TotK only | 1 | `uint8` | `scale_key_interpolation_mode` | Passed directly to `Calculate8KeyAnim` for Scale. |
+| `0xE45` | — | — | 1 | `uint8` | `unverified_E45` | Not a documented field. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: all-zero in 25,261/25,261 emitters. |
 | `0xE46` | â€” | TotK only | 1 | `uint8` | `rotation_wave_x_enable` | Nonzero applies the X-axis rotation waveform in `CalculateRotationMatrix`. |
 | `0xE47` | â€” | TotK only | 1 | `uint8` | `rotation_wave_y_enable` | Nonzero applies the Y-axis rotation waveform. |
 | `0xE48` | â€” | TotK only | 1 | `uint8` | `rotation_wave_z_enable` | Nonzero applies the Z-axis rotation waveform. |
 | `0xE49` | â€” | TotK only | 1 | `uint8` | `rotation_wave_x_mode_packed` | High nibble selects X-axis rotation waveform arithmetic: `0` smooth periodic; `2` and `4` use the half-period signed pulse branch. Shader flags distinguish `0/2/4` with word-2 bits `0x1000/0x2000/0x4000`. Low-nibble meaning is unproven. |
 | `0xE4A` | â€” | TotK only | 1 | `uint8` | `rotation_wave_y_mode_packed` | Y-axis equivalent, mapped to word-2 bits `0x8000/0x10000/0x20000`. |
 | `0xE4B` | â€” | TotK only | 1 | `uint8` | `rotation_wave_z_mode_packed` | Z-axis equivalent, mapped to word-2 bits `0x40000/0x80000/0x100000`. |
+| `0xE4C`–`0xE50` | — | — | 5 | `bytes[5]` | `unverified_E4C_E50` | Not a documented field. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: 3 distinct values, most common `0000000000` x21,261, `0000000002` x3,833, `0000000001` x167. |
 | `0xE51` | â€” | TotK only | 1 | `uint8` | `graphics_shader0_internal` | Shader-source selector for the normal graphics pass. Zero asks the caller-provided resolver for index `E5C`; nonzero resolves the index through the internal graphics `ShaderManager` (`UpdateShaderResource`). |
 | `0xE52` | â€” | TotK only | 1 | `uint8` | `graphics_shader1_internal` | Same source selection for graphics pass 1 / index `E60`. |
 | `0xE53` | â€” | TotK only | 1 | `uint8` | `graphics_shader2_internal` | Same source selection for graphics pass 2 / index `E64`. |
 | `0xE54` | â€” | TotK only | 1 | `uint8` | `compute_shader0_internal` | Compute-shader source selector for the normal pass. Zero asks the caller-provided compute resolver for index `E68`; nonzero uses the internal `ComputeShaderManager`. |
 | `0xE55` | â€” | TotK only | 1 | `uint8` | `compute_shader1_internal` | Same source selection for compute pass 1 / index `E6C`. |
 | `0xE56` | â€” | TotK only | 1 | `uint8` | `compute_shader2_internal` | Same source selection for compute pass 2 / index `E70`. |
+| `0xE57`–`0xE5B` | — | — | 5 | `bytes[5]` | `unverified_E57_E5B` | Not a documented field. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: all-zero in 25,261/25,261 emitters. |
 | `0xE5C` | `0x914` | `+0x548` | 4 | `int32` | `shader_idx_normal` | Normal shader index in shader archive (`UpdateShaderResource:L25`). |
 | `0xE60` | `0x91C` | `+0x548` | 4 | `int32` | `shader_idx_pass1` | Pass 1 shader index in shader archive (`UpdateShaderResource:L52`). |
 | `0xE64` | `0x924` | `+0x548` | 4 | `int32` | `shader_idx_pass2` | Pass 2 shader index in shader archive (`UpdateShaderResource:L88`). |
 | `0xE68` | `0x918` | â€” | 4 | `int32` | `compute_shader0` | Normal compute shader index (`UpdateShaderResource:L122`). |
 | `0xE6C` | â€” | TotK only | 4 | `int32` | `compute_shader1` | Pass 1 compute shader index (`UpdateShaderResource:L145`). |
 | `0xE70` | â€” | TotK only | 4 | `int32` | `compute_shader2` | Pass 2 compute shader index (`UpdateShaderResource:L172`). |
-| `0xE78` | - | UNVERIFIED | 1 | `uint8` | `unverified_E78` | Five-flag group; no TotK reader found. Purpose unknown. |
-| `0xE79` | - | UNVERIFIED | 1 | `uint8` | `unverified_E79` | Same group, purpose unknown. |
-| `0xE7A` | - | UNVERIFIED | 1 | `uint8` | `unverified_E7A` | Same group, purpose unknown. |
-| `0xE7B` | - | UNVERIFIED | 1 | `uint8` | `unverified_E7B` | Same group, purpose unknown. |
-| `0xE7C` | - | UNVERIFIED | 1 | `uint8` | `unverified_E7C` | Same group, purpose unknown. |
-| `0xE7D` | - | UNVERIFIED | 1 | `uint8` | `unverified_E7D` | Second five-flag group, purpose unknown. |
-| `0xE7E` | - | UNVERIFIED | 1 | `uint8` | `unverified_E7E` | Same group, purpose unknown. |
-| `0xE7F` | - | UNVERIFIED | 1 | `uint8` | `unverified_E7F` | Same group, purpose unknown. |
-| `0xE80` | - | UNVERIFIED | 1 | `uint8` | `unverified_E80` | Same group, purpose unknown. |
-| `0xE81` | - | UNVERIFIED | 1 | `uint8` | `unverified_E81` | Same group, purpose unknown. |
-| `0xE84` | - | UNVERIFIED | 4 | `int32` | `unverified_E84` | Five-slot int32 run (0xE84..0xE94); purpose unknown. |
-| `0xE88` | - | UNVERIFIED | 4 | `int32` | `unverified_E88` | Same run, purpose unknown. |
-| `0xE8C` | - | UNVERIFIED | 4 | `int32` | `unverified_E8C` | Same run, purpose unknown. |
-| `0xE90` | - | UNVERIFIED | 4 | `int32` | `unverified_E90` | Same run, purpose unknown. |
-| `0xE94` | - | UNVERIFIED | 4 | `int32` | `unverified_E94` | Same run, purpose unknown. |
+| `0xE74` | — | — | 4 | `int32` | `custom_shader_index` | `detail::RegisterCallbacks` (`0x7100001584`) selects System callback slot `(value + 0x20) & 0xFF` (stride `0x68`); a zero value selects the default slot `0x20` only if the System default-callback byte is set. Same arithmetic as SDK `callbackId = shader.customShaderIndex + CallbackId_CustomShaderNone` (`vfx_EmitterSet.cpp:788`). |
+| `0xE78`â€“`0xE83` | - | UNVERIFIED | 12 | `bytes[12]` | `unverified_E78_E83` | No TotK CPU reader has been found. The earlier split into two five-flag groups was speculative and has been removed; neither element width nor semantics are established by the executable trace. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: outside the `0xCA0`-byte static uniform block, so no shader can read it. Corpus: 630 distinct values, most common `000000000000000000000000` x6,293, `000000000000000000108800` x2,759, `000000000000000000008000` x2,486. |
+| `0xE84` | - | UNVERIFIED | 4 | `int32` | `unverified_E84` | Five-slot int32 run (0xE84..0xE94); purpose unknown. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: outside the `0xCA0`-byte static uniform block, so no shader can read it. Corpus: 4 distinct values, most common `00000000` x25,205, `04000000` x53, `10000000` x2. |
+| `0xE88` | - | UNVERIFIED | 4 | `int32` | `unverified_E88` | Same run, purpose unknown. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: outside the `0xCA0`-byte static uniform block, so no shader can read it. Corpus: all-zero in 25,261/25,261 emitters. |
+| `0xE8C` | - | UNVERIFIED | 4 | `int32` | `unverified_E8C` | Same run, purpose unknown. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: outside the `0xCA0`-byte static uniform block, so no shader can read it. Corpus: all-zero in 25,261/25,261 emitters. |
+| `0xE90` | - | UNVERIFIED | 4 | `int32` | `unverified_E90` | Same run, purpose unknown. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: outside the `0xCA0`-byte static uniform block, so no shader can read it. Corpus: all-zero in 25,261/25,261 emitters. |
+| `0xE94` | - | UNVERIFIED | 4 | `int32` | `unverified_E94` | Same run, purpose unknown. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: outside the `0xCA0`-byte static uniform block, so no shader can read it. Corpus: all-zero in 25,261/25,261 emitters. |
+| `0xE98`–`0xEF7` | — | — | 96 | `bytes[96]` | `unverified_E98_EF7` | Not a documented field. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: 4 distinct values, most common `010100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000` x16,638, `000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000` x5,898, `000000000000000000000000000000000000000000000000000000000000000041544553545f4f4e4c59000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000` x2,724. |
+| `0xEF8` | — | — | 4 | `int32` | `custom_action_index` | `detail::RegisterCallbacks` (`0x7100001584`): when the value is positive it selects System callback slot `(value - 1) & 0xFF` (stride `0x68`); `Emitter::ResourceUpdate` (`0x7100002000`) also reads it. Same arithmetic as SDK `callbackId = action.customActionIndex - 1` (`vfx_EmitterSet.cpp:814`). |
+| `0xEFC` | â€” | â€” | 4 | `float` | `all_directional_speed` | Base value for animation lane 9. `ResolveBinaryData` binds lane 9 to the `EAOV` attribute, and `Emitter::ResourceUpdate` copies `0xEFC` to live `Emitter + 0x444`; the initial-velocity path consumes that lane as the omnidirectional/shape-direction speed component. |
+| `0xF00` | â€” | â€” | 4 | `float` | `designated_direction_speed` | Base value for animation lane 10. `ResolveBinaryData` binds lane 10 to `EADV`, and `Emitter::ResourceUpdate` copies `0xF00` to live `Emitter + 0x450`; the initial-velocity path applies it to the designated-direction vector. |
+| `0xF04` | â€” | â€” | 12 | `float[3]` | `designated_direction_xyz` | Designated velocity direction vector read directly by `FUN_71000127F0`. When `0xD4B` is nonzero the vector is transformed through the emitter basis before it contributes to initial particle velocity. |
 | `0xF10` | `0x970` | `+0x5A0` | 4 | `float` | `emission_direction_spread_degrees` | Angular spread applied around the shape-produced direction. `FUN_71000127F0` converts the value to the lower bound `1 - value/90`, randomly samples between that bound and `1`, derives the complementary radial component, rotates the resulting local direction into the source-direction frame, and then applies the initial speed. A zero value takes the direct no-spread branch. |
 | `0xF14` | `0x974` | `+0x5A0` | 4 | `float` | `emission_tangent_amount` | Linear tangential contribution to the shape-produced emission direction, not an angle. `FUN_71000127F0` derives a normalized XZ tangent from the emitted position (or a random normalized XZ direction when the position is at the origin) and performs `direction += tangent * value`. |
 | `0xF18` | `0x978` | `+0x5A0` | 4 | `float` | `emission_direction_random_x` | Multiplies the X component of a sampled random vector and adds it to the initialized particle direction (`direction.x += random.x * value`). |
@@ -242,6 +443,7 @@ The VFXB resource-node header is a separate `0x20`-byte structure. `Resource::In
 | `0xF24` | `0x984` | `+0x5A0` | 4 | `float` | `initial_speed_random_percent` | One-sided downward randomization of initial speed. `FUN_71000127F0` multiplies the speed by `1 - U * (value / 100)`, where `U` is uniform in `[0,1)`. |
 | `0xF28` | `0x988` | `+0x5A0` | 4 | `float` | `emitter_motion_inherit_scale` | Scales the emitter displacement vector divided by elapsed emitter time before adding it to particle direction/velocity. The contribution is computed only when the elapsed-time value is positive. |
 | `0xF2C` | `0x98C` | `+0x5A0` | 4 | `float` | `emitter_motion_inherit_max` | Maximum magnitude of the motion-inheritance vector produced with `0xF28`. `FUN_71000127F0` normalizes and rescales that vector when its length exceeds this value, then adds it to the particle direction/velocity. |
+| `0xF30`–`0xF43` | — | — | 20 | `bytes[20]` | `unverified_F30_F43` | Not a documented field. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: 37 distinct values, most common `0000000000000000000000000000000000000000` x12,744, `0000000000000000000000000200000000000000` x4,074, `0000000000000000000000000200010000000000` x2,762. |
 | `0xF44` | `0x9A4` | `+0x5A0` | 1 | `uint8` | `color0_mode` | Color0 mode: `0` copies the constant into key slot 0, `2` evaluates the timed key array through `Calculate8KeyAnim`, and `3` selects a discrete key with `floor(normalized_life * key_count)`. The previous `3=Random` label was incorrect. |
 | `0xF45` | `0x9A5` | `+0x5A0` | 1 | `uint8` | `color1_mode` | Color1 mode with the same `0` constant / `2` interpolated-key / `3` discrete-key behavior. |
 | `0xF46` | `0x9A6` | `+0x5A0` | 1 | `uint8` | `alpha0_mode` | Alpha0 mode with the same `0` constant / `2` interpolated-key behavior; no separate mode-3 branch is present in the traced Alpha0 evaluator. |
@@ -252,16 +454,24 @@ The VFXB resource-node header is a separate `0x20`-byte structure. `Resource::In
 | `0xF64` | `0x9C4` | `+0x5A0` | 4 | `float` | `alpha1_const` | Alpha1 constant Alpha value (`UpdateParams:L122`). |
 | `0xF68` | `0x9C8` | `+0x5A0` | 12 | `float[3]` | `particle_scale_xyz`| Initial particle base scale XYZ (`InitializeParticle:L59-64`). |
 | `0xF74` | `0x9D4` | `+0x5A0` | 12 | `float[3]` | `particle_scale_rnd`| Initial particle scale random range XYZ (`InitializeParticle:L51-86`). |
+| `0xF80`–`0xF8B` | — | — | 12 | `bytes[12]` | `unverified_F80_F8B` | Not a documented field. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: 533 distinct values, most common `00000000000048420000c842` x6,095, `000000000000484200004842` x4,032, `000000000000000000000000` x3,069. |
 | `0xF8C` | â€” | TotK only | 1 | `uint8` | `waveform_alpha_enable` | Nonzero multiplies Alpha0 and Alpha1 by waveform 0 in the color evaluators. |
 | `0xF8D` | â€” | TotK only | 1 | `uint8` | `waveform_scale_x_enable` | Nonzero applies waveform 0 to Scale X. |
 | `0xF8E` | â€” | TotK only | 1 | `uint8` | `waveform_scale_y_enable` | Nonzero additionally applies waveform 1 to Scale Y. |
 | `0xF8F` | `0x9EF` | `+0x5A0` | 1 | `uint8` | `waveform_mode_packed` | The high nibble selects waveform arithmetic: `0` smooth periodic curve, `1` fractional ramp/saw, `2` half-period pulse/square. `ShaderFlag::Initialize` maps those values to shader-word-0 bits `0x1`, `0x2`, and `0x4`. The low nibble's independent meaning is not established. |
+| `0xF90`–`0xF97` | — | — | 8 | `bytes[8]` | `unverified_F90_F97` | Not a documented field. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: all-zero in 25,261/25,261 emitters. |
 | `0xF98` | `0x9F8` | Indexed | 8 | `uint64` | `tex_slot0_guid` | Neutral texture slot 0 GUID. Stride `0x18`; no material-role name is assigned by the executable trace. (`UpdateParams:L65`). |
+| `0xFA0`–`0xFAF` | — | — | 16 | `bytes[16]` | `unverified_FA0_FAF` | Not a documented field. Tail of texture-slot 0's `0x18`-byte record (GUID at `0xF98`). `UpdateParams` (`0x710000BC14`) passes the record pointer, not just the GUID, to the resolver interface `(**(code**)(*param_3 + 0x20))(param_3, &record)`, so these bytes are consumed outside `nn::vfx2` (game-side resolver) if at all. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: 42 distinct values, most common `01010000000000000000000000000000` x7,396, `01010000010000000000000000000000` x2,859, `02020000010000000000000000000000` x2,427. |
 | `0xFB0` | `0xA18` | Indexed | 8 | `uint64` | `tex_slot1_guid` | Neutral texture slot 1 GUID; no material-role name is assigned by the executable trace. (`UpdateParams:L70`). |
+| `0xFB8`–`0xFC7` | — | — | 16 | `bytes[16]` | `unverified_FB8_FC7` | Not a documented field. Tail of texture-slot 1's record (same resolver call at `0x710000BC3C`). **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: 46 distinct values, most common `01010000000000000000000000000000` x7,339, `00000000000000000000000000000000` x4,557, `02020000000000000000000000000000` x2,425. |
 | `0xFC8` | `0xA38` | Indexed | 8 | `uint64` | `tex_slot2_guid` | Neutral texture slot 2 GUID; no material-role name is assigned by the executable trace. (`UpdateParams:L75`). |
+| `0xFD0`–`0xFDF` | — | — | 16 | `bytes[16]` | `unverified_FD0_FDF` | Not a documented field. Tail of texture-slot 2's record (same resolver call at `0x710000BC64`). **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: 41 distinct values, most common `01010000000000000000000000000000` x11,032, `00000000000000000000000000000000` x7,447, `01010000010000000000000000000000` x1,327. |
 | `0xFE0` | â€” | TotK only | 8 | `uint64` | `tex_slot3_guid` | Texture Slot 3 GUID (`TextureSlotId_3`). (`UpdateParams:L80`). |
+| `0xFE8`–`0xFF7` | — | — | 16 | `bytes[16]` | `unverified_FE8_FF7` | Not a documented field. Tail of texture-slot 3's record (resolver call at `0x710000BC8C`). **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: 10 distinct values, most common `01010000000000000000000000000000` x24,834, `02020000000000000000000000000000` x225, `01010000010000000000000000000000` x134. |
 | `0xFF8` | â€” | TotK only | 8 | `uint64` | `tex_slot4_guid` | Texture Slot 4 GUID (`TextureSlotId_4`). (`UpdateParams:L85`). |
+| `0x1000`–`0x100F` | — | — | 16 | `bytes[16]` | `unverified_1000_100F` | Not a documented field. Tail of texture-slot 4's record (resolver call at `0x710000BCB4`; the slot starts at `0xFF8`) and the first bytes after it. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: 5 distinct values, most common `01010000000000000000000000000000` x25,241, `01010000010000000000000000000000` x11, `02010000000000010000000000000000` x6. |
 | `0x1010`| â€” | TotK only | 8 | `uint64` | `tex_slot5_guid` | Texture Slot 5 GUID (`TextureSlotId_5`). (`UpdateParams:L90`). |
+| `0x1018`–`0x1027` | — | — | 16 | `bytes[16]` | `unverified_1018_1027` | Not a documented field. Tail of texture-slot 5's record (GUID at `0x1010`); the resolver call for slot 5 passes the record pointer (`0x710000BCE4`, same pattern as slots 0 to 4). **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: 1 distinct values, most common `01010000000000000000000000000000` x25,261. |
 | `0x1028`| `0xA58` | Indexed | 1 | `uint8` | `tex0_mode_index`| Slot 0 texture/shader mode. Values `1`, `2`, and `3` set distinct shader-word-0 bits; `4` initializes the slot-0 flipbook runtime block and sets bit `0x80`; `6` sets shader-word-1 bit `0x200000`. Friendly enum names are not proven. |
 | `0x1029`| `0xA59` | Indexed | 1 | `uint8` | `tex0_uv_scroll` | Slot 0 UV translation scroll enable (`UpdateParams:L197`). |
 | `0x102A`| `0xA5A` | Indexed | 1 | `uint8` | `tex0_uv_rotate` | Slot 0 UV rotation animation enable (`UpdateParams:L270`). |
@@ -270,6 +480,7 @@ The VFXB resource-node header is a separate `0x20`-byte structure. `Resource::In
 | `0x102D`| `0xA5D` | Indexed | 1 | `uint8` | `tex0_shader_flag0` | Nonzero sets shader-flag word 1 bit `0x1`; higher-level meaning unproven (`ShaderFlag::Initialize` `0x710000E388`). |
 | `0x102E`| `0xA5E` | Indexed | 1 | `uint8` | `tex0_shader_flag1` | Nonzero sets shader-flag word 1 bit `0x2`; higher-level meaning unproven (`ShaderFlag::Initialize` `0x710000E388`). |
 | `0x102F`| `0xA5F` | Indexed | 1 | `uint8` | `tex0_shader_flag2` | Nonzero sets shader-flag word 1 bit `0x1000`; higher-level meaning unproven (`ShaderFlag::Initialize` `0x710000E388`). |
+| `0x1030`–`0x1037` | — | — | 8 | `bytes[8]` | `unverified_1030_1037` | Not a documented field. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: 2 distinct values, most common `0000000000000000` x24,915, `0100000000000000` x346. |
 | `0x1038`| `0xA68` | Indexed | 1 | `uint8` | `tex1_mode_index`| Slot 1 equivalent of `0x1028`; value `4` initializes the slot-1 flipbook runtime block. |
 | `0x1039`| `0xA69` | Indexed | 1 | `uint8` | `tex1_uv_scroll` | Slot 1 UV translation scroll enable (`UpdateParams:L208`). |
 | `0x103A`| `0xA6A` | Indexed | 1 | `uint8` | `tex1_uv_rotate` | Slot 1 UV rotation animation enable (`UpdateParams:L280`). |
@@ -278,6 +489,7 @@ The VFXB resource-node header is a separate `0x20`-byte structure. `Resource::In
 | `0x103D`| `0xA6D` | Indexed | 1 | `uint8` | `tex1_shader_flag0` | Nonzero sets shader-flag word 1 bit `0x4`; higher-level meaning unproven (`ShaderFlag::Initialize` `0x710000E388`). |
 | `0x103E`| `0xA6E` | Indexed | 1 | `uint8` | `tex1_shader_flag1` | Nonzero sets shader-flag word 1 bit `0x8`; higher-level meaning unproven (`ShaderFlag::Initialize` `0x710000E388`). |
 | `0x103F`| `0xA6F` | Indexed | 1 | `uint8` | `tex1_shader_flag2` | Nonzero sets shader-flag word 1 bit `0x2000`; higher-level meaning unproven (`ShaderFlag::Initialize` `0x710000E388`). |
+| `0x1040`–`0x1047` | — | — | 8 | `bytes[8]` | `unverified_1040_1047` | Not a documented field. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: 2 distinct values, most common `0000000000000000` x24,803, `0100000000000000` x458. |
 | `0x1048`| `0xA78` | Indexed | 1 | `uint8` | `tex2_mode_index`| Slot 2 equivalent of `0x1028`; value `4` initializes the slot-2 flipbook runtime block. |
 | `0x1049`| `0xA79` | Indexed | 1 | `uint8` | `tex2_uv_scroll` | Slot 2 UV translation scroll enable (`UpdateParams:L218`). |
 | `0x104A`| `0xA7A` | Indexed | 1 | `uint8` | `tex2_uv_rotate` | Slot 2 UV rotation animation enable (`UpdateParams:L290`). |
@@ -286,6 +498,7 @@ The VFXB resource-node header is a separate `0x20`-byte structure. `Resource::In
 | `0x104D`| `0xA7D` | Indexed | 1 | `uint8` | `tex2_shader_flag0` | Nonzero sets shader-flag word 1 bit `0x10`; higher-level meaning unproven (`ShaderFlag::Initialize` `0x710000E388`). |
 | `0x104E`| `0xA7E` | Indexed | 1 | `uint8` | `tex2_shader_flag1` | Nonzero sets shader-flag word 1 bit `0x20`; higher-level meaning unproven (`ShaderFlag::Initialize` `0x710000E388`). |
 | `0x104F`| `0xA7F` | Indexed | 1 | `uint8` | `tex2_shader_flag2` | Nonzero sets shader-flag word 1 bit `0x4000`; higher-level meaning unproven (`ShaderFlag::Initialize` `0x710000E388`). |
+| `0x1050`–`0x1057` | — | — | 8 | `bytes[8]` | `unverified_1050_1057` | Not a documented field. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: 2 distinct values, most common `0000000000000000` x24,992, `0100000000000000` x269. |
 | `0x1058`| â€” | TotK only | 1 | `uint8` | `tex3_mode_index`| Slot 3 equivalent of `0x1028`; value `4` initializes the slot-3 flipbook runtime block. |
 | `0x1059`| â€” | TotK only | 1 | `uint8` | `tex3_uv_scroll` | Slot 3 UV translation scroll enable (`UpdateParams:L231`). |
 | `0x105A`| â€” | TotK only | 1 | `uint8` | `tex3_uv_rotate` | Slot 3 UV rotation animation enable (`UpdateParams:L300`). |
@@ -294,6 +507,7 @@ The VFXB resource-node header is a separate `0x20`-byte structure. `Resource::In
 | `0x105D`| â€” | TotK only | 1 | `uint8` | `tex3_shader_flag0` | Nonzero sets shader-flag word 1 bit `0x40`; higher-level meaning unproven (`ShaderFlag::Initialize` `0x710000E388`). |
 | `0x105E`| â€” | TotK only | 1 | `uint8` | `tex3_shader_flag1` | Nonzero sets shader-flag word 1 bit `0x80`; higher-level meaning unproven (`ShaderFlag::Initialize` `0x710000E388`). |
 | `0x105F`| â€” | TotK only | 1 | `uint8` | `tex3_shader_flag2` | Nonzero sets shader-flag word 1 bit `0x8000`; higher-level meaning unproven (`ShaderFlag::Initialize` `0x710000E388`). |
+| `0x1060`–`0x1067` | — | — | 8 | `bytes[8]` | `unverified_1060_1067` | Not a documented field. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: 2 distinct values, most common `0000000000000000` x25,260, `0100000000000000` x1. |
 | `0x1068`| â€” | TotK only | 1 | `uint8` | `tex4_mode_index`| Slot 4 equivalent of `0x1028`; value `4` initializes the slot-4 flipbook runtime block. |
 | `0x1069`| â€” | TotK only | 1 | `uint8` | `tex4_uv_scroll` | Slot 4 UV translation scroll enable (`UpdateParams:L245`). |
 | `0x106A`| â€” | TotK only | 1 | `uint8` | `tex4_uv_rotate` | Slot 4 UV rotation animation enable (`UpdateParams:L310`). |
@@ -302,6 +516,7 @@ The VFXB resource-node header is a separate `0x20`-byte structure. `Resource::In
 | `0x106D`| â€” | TotK only | 1 | `uint8` | `tex4_shader_flag0` | Nonzero sets shader-flag word 1 bit `0x100`; higher-level meaning unproven (`ShaderFlag::Initialize` `0x710000E388`). |
 | `0x106E`| â€” | TotK only | 1 | `uint8` | `tex4_shader_flag1` | Nonzero sets shader-flag word 1 bit `0x200`; higher-level meaning unproven (`ShaderFlag::Initialize` `0x710000E388`). |
 | `0x106F`| â€” | TotK only | 1 | `uint8` | `tex4_shader_flag2` | Nonzero sets shader-flag word 1 bit `0x10000`; higher-level meaning unproven (`ShaderFlag::Initialize` `0x710000E388`). |
+| `0x1070`–`0x1077` | — | — | 8 | `bytes[8]` | `unverified_1070_1077` | Not a documented field. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: 2 distinct values, most common `0000000000000000` x25,237, `0100000000000000` x24. |
 | `0x1078`| â€” | TotK only | 1 | `uint8` | `tex5_mode_index`| Slot 5 equivalent of `0x1028`; value `4` initializes the slot-5 flipbook runtime block. |
 | `0x1079`| â€” | TotK only | 1 | `uint8` | `tex5_uv_scroll` | Slot 5 UV translation scroll enable (`UpdateParams:L257`). |
 | `0x107A`| â€” | TotK only | 1 | `uint8` | `tex5_uv_rotate` | Slot 5 UV rotation animation enable (`UpdateParams:L320`). |
@@ -310,4 +525,213 @@ The VFXB resource-node header is a separate `0x20`-byte structure. `Resource::In
 | `0x107D`| â€” | TotK only | 1 | `uint8` | `tex5_shader_flag0` | Nonzero sets shader-flag word 1 bit `0x400`; higher-level meaning unproven (`ShaderFlag::Initialize` `0x710000E388`). |
 | `0x107E`| â€” | TotK only | 1 | `uint8` | `tex5_shader_flag1` | Nonzero sets shader-flag word 1 bit `0x800`; higher-level meaning unproven (`ShaderFlag::Initialize` `0x710000E388`). |
 | `0x107F`| â€” | TotK only | 1 | `uint8` | `tex5_shader_flag2` | Nonzero sets shader-flag word 1 bit `0x20000`; higher-level meaning unproven (`ShaderFlag::Initialize` `0x710000E388`). |
+| `0x1080`–`0x10C7` | — | — | 72 | `bytes[72]` | `unverified_1080_10C7` | Not a documented field. **Audit:** CPU: a full scan of the `nn::vfx2` code (`0x7100000850..0x71002F300`) for loads/stores whose immediate covers this range (data base or `+0x70` body base, GOT loads excluded) found no reader. GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: all-zero in 25,261/25,261 emitters. |
 | **`0x10C8`**| â€” | â€” | â€” | â€” | **Struct End** | End of fixed data struct (`0x10C8` bytes total). |
+
+---
+
+## 3. Attribute chunk payloads (child nodes of `EMTR`)
+
+Each attribute chunk is a VFXB node whose 0x20-byte node header is followed by its payload; the payload is the node's data pointer. Offsets below are payload-relative. Sizes in the corpus column come from all 1,530 loadable shipped `.esetb` files (25,261 `EMTR`), and are diagnostic only; semantics below come from the executable.
+
+### 3.1 Emitter-animation chunks `EAES EAER EAET EAC0 EAC1 EATR EAPL EAA0 EAA1 EAOV EADV EASL EASS EAGV` (shared schema)
+
+Evidence: `Emitter::Calculate` (`0x710000FEBC`) loops the fourteen lane pointers at `EmitterResource + 0x348 + lane * 8` and calls `detail::CalculateEmitterKeyFrameAnimation` (`0x7100016250`) with the payload pointer.
+
+| Payload offset | Size | Type | Field | Evidence |
+|:---:|:---:|:---:|:---|:---|
+| `0x00` | 1 | `uint8` | `enabled` | `Emitter::Calculate` skips a lane unless the pointer is non-null **and** `payload[0] != 0`. Corpus: always `1` (8,655 / 8,655 chunks). |
+| `0x01` | 1 | `uint8` | `loop` | Nonzero makes `CalculateEmitterKeyFrameAnimation` reduce time with `fmodf(time, lastKeyTime)`. `Emitter::Calculate` also re-evaluates a lane that already reached its end only when this byte is nonzero. Corpus: `0` or `1`. |
+| `0x02` | 1 | `uint8` | `interpolation` | `0` = linear between neighbouring keys; `1` = hold the lower key (step). Other values leave the output unchanged. Corpus: always `0`. |
+| `0x03` | 1 | `uint8` | `unverified_03` | Not read by `CalculateEmitterKeyFrameAnimation` or the lane loop. Corpus: always `0`. |
+| `0x04` | 4 | `uint32` | `key_count` | Number of keys. `0` makes the evaluator return without writing. Corpus: 1 to 12, and `node.size == 0x2C + 0x10 * key_count` for every chunk. |
+| `0x08` | 4 | `bytes[4]` | `unverified_08` | Not read. Corpus: always `0`. |
+| `0x0C + 0x10*i` | 16 | `float[4]` | `key[i]` | `x, y, z` at `+0x00/+0x04/+0x08` and time at `+0x0C` (`CalculateEmitterKeyFrameAnimation` reads values at `payload+0x0C..0x14` and time at `payload+0x18` for key 0). Times are non-decreasing in all 8,655 corpus chunks. |
+
+The three value components are written to the lane's 12-byte live vector (`Emitter + 0x3D8 + lane * 0x0C`); which components a given lane consumer reads is documented per lane in section 1C where established.
+
+### 3.2 Field chunks (`FRND FRN1 FMAG FSPN FCOL FCOV FPAD FCLN FCSF FGWD`)
+
+`EmitterResource::ResolveBinaryData` (`0x710000EC80`) stores each chunk's payload pointer in the resource and sets `EmitterResource + 0xBE`:
+
+| FourCC | Resource slot | Consumer (called from `EmitterCalculator::CalculateParticleBehavior`, `0x7100018280`) |
+|---|---:|---|
+| `FRND` | `+0x2F8` | `CalculateParticleBehaviorFieldRandom` `0x71000168D0` -> `detail::CalculateGpuNoise` `0x710001AA10` |
+| `FRN1` | `+0x300` | inline block in `CalculateParticleBehavior` (periodic random impulse) |
+| `FMAG` | `+0x308` | `CalculateParticleBehaviorFieldMagnet` `0x7100016A10` |
+| `FSPN` | `+0x310` | `CalculateParticleBehaviorFieldSpin` `0x71000170CC` |
+| `FCOL` | `+0x318` | `CalculateParticleBehaviorFieldCollision` `0x71000175CC` |
+| `FCOV` | `+0x320` | `CalculateParticleBehaviorFieldConvergence` `0x710001795C` |
+| `FPAD` | `+0x328` | `CalculateParticleBehaviorFPAD` `0x7100017D34` |
+| `FCLN` | `+0x330` | `detail::CalculateParticleBehavior_FieldCurlNoise` `0x7100000C80` |
+| `FGWD` | `+0x338` | not interpreted by `nn::vfx2`; passed to the callbacks at `Emitter + 0x3B8` / `+0x3C0` |
+| `FCSF` | `+0x340` | not interpreted by `nn::vfx2`; passed to the callback at `Emitter + 0x3C8` (opaque, game-defined) |
+
+The corpus contains no `FPAD` and no `FGWD`; their rows below come from the executable only. Member names in quotes are the NintendoWare SDK names; each is promoted only because the executable's arithmetic or control flow matches the SDK's.
+
+**Shared sub-block `Anim8Key` (`0x98` bytes, used by `FRND FRN1 FMAG FSPN FCOV FPAD`).** Offsets are relative to the sub-block. Evidence: `EmitterCalculator::Calculate8KeyAnim` `0x7100016120` and the callers listed above; SDK `ResAnim8KeyParamSet` / `CalculateField8KeyAnim`.
+
+| Offset | Size | Type | Field | Evidence |
+|:---:|:---:|:---:|:---|:---|
+| `+0x00` | 4 | `uint32` | `enable` | Zero: the consumer uses the static value stored elsewhere in the chunk. Nonzero: the value is evaluated from the keys. |
+| `+0x04` | 4 | `uint32` | `loop` | Nonzero: normalized time is `fmodf(particle_time + start_random * particle_random.x * loop_num, loop_num) / loop_num`. Zero: normalized time is `particle_time / particle_life` (`FRND` at `0x7100016920`, `FRN1` inline in `CalculateParticleBehavior`). |
+| `+0x08` | 4 | `uint32` | `start_random` | Converted with `ucvtf`, multiplied by the particle's first random scalar and `loop_num` in the `loop` branch. |
+| `+0x0C` | 4 | `int32` | `key_count` | Passed as the key-count argument of `Calculate8KeyAnim`. |
+| `+0x10` | 4 | `int32` | `loop_num` | Period divisor in the `loop` branch (corpus: `100`). |
+| `+0x14` | 4 | `uint32` | `interpolation` | Only the low byte reaches `Calculate8KeyAnim`'s last parameter: `0` linear, `1` hold the lower key. Corpus: always `0`. |
+| `+0x18 + 0x10*i` | 16 | `float[4]` | `key[i]`, `i = 0..7` | `x, y, z` value and time `w` in `[0,1]`. `Calculate8KeyAnim` clamps before the first and after the last key. |
+
+**`FRND` (payload `0xD4`).** Evidence: `CalculateGpuNoise` `0x710001AA10`, `RandFunc` `0x710001AFF0`, `CalculateParticleBehaviorFieldRandom` `0x71000168D0`; SDK `ResFieldRandom` / `CalculateGpuNoise` (`vfx_FieldRandom.cpp`).
+
+| Offset | Size | Type | Field | Evidence |
+|:---:|:---:|:---:|:---|:---|
+| `+0x00` | 1 | `uint8` | `enable_unified_phase` | Selects the unified-phase branch of `CalculateGpuNoise` (uses `+0x14/+0x18`, time-shifted per-particle seeds). SDK `enableUnifiedPhase`. |
+| `+0x01` | 1 | `uint8` | `enable_detailed_option` | Zero: fixed default wave constants (`GetAggregate2/4`); nonzero: `RandFunc` using `+0x1C..+0x38`. SDK `enableDetailedOption`. |
+| `+0x02` | 1 | `uint8` | `enable_air_resist` | Nonzero applies `(1 - pow(a, t)) / (1 - a)` time remapping with `a` from the emitter-set air-resistance value. SDK `enableAirRegist`. |
+| `+0x03` | 1 | `uint8` | `unverified_03` | Not read. Corpus: always `0`. |
+| `+0x04` | 12 | `float[3]` | `random_vel` | Static amplitude read when `Anim8Key.enable == 0`; scales the noise output per axis. SDK `randomVel`. |
+| `+0x10` | 4 | `int32` | `blank` | Noise cycle length: converted to float and used as the base period (`2*pi / blank` in the SDK). SDK `blank`. |
+| `+0x14` | 4 | `float` | `unified_phase_speed` | `value / 100 * blank` in the unified-phase branch. SDK `unifiedPhaseSpeed`. |
+| `+0x18` | 4 | `float` | `unified_phase_distribution` | `value / 100 * blank` random phase width. SDK `unifiedPhaseDistribution`. |
+| `+0x1C` | 16 | `float[4]` | `wave_coefficient[4]` | `RandFunc` returns `sum_k coefficient[k] * sin(phase / divisor[k])`; these are the multipliers. Corpus constant `4, 3, 2, 1.5`. |
+| `+0x2C` | 16 | `float[4]` | `wave_divisor[4]` | Divisors of the phase inside each sine term. Corpus constant `0.6, 0.42, 0.23, 0.15`. The SDK's `waveParamHzRate0..3` / `waveParam0..3` names are not asserted because the executable shows only this arithmetic role. |
+| `+0x3C` | `0x98` | `Anim8Key` | `random_vel_anim` | `enable` at `+0x3C`, keys at `+0x54`; replaces `random_vel` when enabled. |
+
+**`FRN1` (payload `0xA8`).** Evidence: inline block of `CalculateParticleBehavior`.
+
+| Offset | Size | Type | Field | Evidence |
+|:---:|:---:|:---:|:---|:---|
+| `+0x00` | 12 | `float[3]` | `random_vel` | Static per-axis impulse amplitude. |
+| `+0x0C` | 4 | `uint32` | `blank` | The impulse is applied only when `(int)time % blank == 0` (SDK `CalculateParticleBehaviorFieldRandomSimple`). |
+| `+0x10` | `0x98` | `Anim8Key` | `random_vel_anim` | Keys at `+0x28`. |
+
+**`FMAG` (payload `0xB4`).** Evidence: `CalculateParticleBehaviorFieldMagnet` `0x7100016A10`; SDK `ResFieldMagnet`.
+
+| Offset | Size | Type | Field | Evidence |
+|:---:|:---:|:---:|:---|:---|
+| `+0x00` | 1 | `uint8` | `follow_emitter` | Tested at `0x7100016ACC` together with EMTR `0xCA3 == 1`; when either condition fails the fixed-target path (`0x7100016D4C`) runs, otherwise the emitter-relative path runs. SDK `isFollowEmitter` (the SDK does not mention the `0xCA3` condition). |
+| `+0x01` | 1 | `uint8` | `axis_x` | Gates the X velocity update (`0x7100016D54`). SDK `fieldMagnetFlagX`. |
+| `+0x02` | 1 | `uint8` | `axis_y` | Gates the Y update (`0x7100016D88`). |
+| `+0x03` | 1 | `uint8` | `axis_z` | Gates the Z update (`0x7100016DC8`). |
+| `+0x04` | 4 | `float` | `power` | Static magnet strength used when `Anim8Key.enable == 0`. SDK `fieldMagnetPower`. |
+| `+0x08` | 12 | `float[3]` | `position` | Target position; the velocity update is `vel += (pos - particle_pos - vel) * power` per enabled axis. SDK `fieldMagnetPos`. |
+| `+0x14` | `0x98` | `Anim8Key` | `power_anim` | Keys at `+0x2C`; only the evaluated `x` is the strength. |
+| `+0xAC` | 1 | `uint8` | `unverified_AC` | Read at function entry: when nonzero the field is skipped unless bit 1 of the emitter-set flag byte at `+0x39` is set. Meaning unproven. Corpus: always `0`. |
+
+**`FSPN` (payload `0x13C`).** Evidence: `CalculateParticleBehaviorFieldSpin` `0x71000170CC` (reads at `0x0/0x4/0x8/0xC..0x20` and `0xA4..0xB8`, key arrays at `0x24` and `0xBC`); SDK `ResFieldSpinData`.
+
+| Offset | Size | Type | Field | Evidence |
+|:---:|:---:|:---:|:---|:---|
+| `+0x00` | 4 | `float` | `spin_rotate` | Static rotation increment; the SDK uses it directly (radians) and converts animated values from degrees. |
+| `+0x04` | 4 | `int32` | `spin_axis` | `0` X, `1` Y, `2` Z (SDK switch). |
+| `+0x08` | 4 | `float` | `spin_outer` | Static outward (diffusion) speed. |
+| `+0x0C` | `0x98` | `Anim8Key` | `rotate_anim` | Keys at `+0x24`. |
+| `+0xA4` | `0x98` | `Anim8Key` | `outer_anim` | Keys at `+0xBC`. |
+
+**`FCOL` (payload `0x14`).** Evidence: `CalculateParticleBehaviorFieldCollision` `0x71000175CC`; SDK `ResFieldCollisionData`.
+
+| Offset | Size | Type | Field | Evidence |
+|:---:|:---:|:---:|:---|:---|
+| `+0x00` | 1 | `uint8` | `reaction_type` | `0` reflect (velocity Y times `-coef`, then drag), `1` disappear (clamp to the plane and end life); other values return. |
+| `+0x01` | 1 | `uint8` | `is_world` | Nonzero evaluates the plane in world space through the emitter matrix; zero uses emitter space. |
+| `+0x04` | 4 | `float` | `plane_y` | Plane height; the particle is corrected when `pos.y < plane_y`. |
+| `+0x08` | 4 | `float` | `restitution` | Reflect: new `vel.y = vel.y * -restitution`. |
+| `+0x0C` | 4 | `int32` | `max_collisions` | `-1` = unlimited; otherwise the field stops acting once the particle's collision counter reaches it. |
+| `+0x10` | 4 | `float` | `drag` | Multiplies the reflected velocity (all axes). |
+
+**`FCOV` (payload `0xAC`).** Evidence: `CalculateParticleBehaviorFieldConvergence` `0x710001795C`; SDK `ResFieldConvergenceData`.
+
+| Offset | Size | Type | Field | Evidence |
+|:---:|:---:|:---:|:---|:---|
+| `+0x00` | 1 | `uint8` | `type` | `1` converges toward the emitter position; otherwise toward `position`. |
+| `+0x01` | 1 | `uint8` | `unverified_01` | Entry gate shared with `FMAG +0xAC` (skip unless emitter-set flag byte `+0x39` bit 1). Corpus: always `0`. |
+| `+0x04` | 12 | `float[3]` | `position` | Target position (added to the emitter position in the emitter mode). |
+| `+0x10` | 4 | `float` | `ratio` | `pos += (target - pos) * ratio * particle_dynamics_rand * frame_rate`. |
+| `+0x14` | `0x98` | `Anim8Key` | `ratio_anim` | Keys at `+0x2C`. |
+
+**`FPAD` (executable only; payload `0xA8`).** Evidence: `CalculateParticleBehaviorFPAD` `0x7100017D34` reads `+0x00` (byte), `+0x04..+0x0F`, `+0x10..+0x24`, and adds `+0x28` as the key array; SDK `ResFieldPosAddData`.
+
+| Offset | Size | Type | Field | Evidence |
+|:---:|:---:|:---:|:---|:---|
+| `+0x00` | 1 | `uint8` | `is_global` | Nonzero rotates the displacement into emitter space before adding it. SDK `isFieldPosAddGlobal`. |
+| `+0x04` | 12 | `float[3]` | `position_add` | Static displacement per frame (SDK `fieldPosAdd`). |
+| `+0x10` | `0x98` | `Anim8Key` | `position_add_anim` | Keys at `+0x28`. |
+
+**`FCLN` (payload `0x24`).** Evidence: `CalculateParticleBehavior_FieldCurlNoise` `0x7100000C80` (byte tests at `0xDFC`, `0xCBC`, `0xCF4`); SDK `ResFieldCurlNoiseData` (`vfx_CurlNoiseData.cpp`).
+
+| Offset | Size | Type | Field | Evidence |
+|:---:|:---:|:---:|:---|:---|
+| `+0x00` | 1 | `uint8` | `interpolation` | Bit 0 selects interpolated sampling (`GetCurlNoiseS8Interpolate`) vs integer sampling. SDK `isFieldCurlNoiseInterpolation`. |
+| `+0x01` | 1 | `uint8` | `base_random` | Bit 0 multiplies `base` by the particle's first random scalar. SDK `isFieldCurlNoiseBaseRandom`. |
+| `+0x02` | 1 | `uint8` | `world_coordinate` | Nonzero samples in world space and rotates the result back. SDK `isWorldCoordinate`. |
+| `+0x04` | 12 | `float[3]` | `influence` | Per-axis multiplier of the sampled vector (SDK `fieldCurlNoiseInfluence`). |
+| `+0x10` | 12 | `float[3]` | `speed` | Per-axis sample-coordinate velocity, multiplied by emitter time (SDK `fieldCurlNoiseSpeed`). |
+| `+0x1C` | 4 | `float` | `scale` | Multiplies the particle position before sampling (SDK `fieldCurlNoiseScale`). |
+| `+0x20` | 4 | `float` | `base` | Constant sample-coordinate offset (SDK `fieldCurlNoiseBase`). |
+
+**`FCSF` and `FGWD`.** `nn::vfx2` stores the payload pointer and hands it to game-registered callbacks (`CalculateParticleBehavior`, `0x7100018280`); the payload layout is defined by game code, not by the VFX library. Corpus `FCSF`: 7,049 chunks, payload `0x44`; no `FGWD` chunk exists in the shipped data.
+
+### 3.3 Emitter-plugin chunks (`EP01 EP02 EP03 EP04`)
+
+`ResolveBinaryData` stores the payload pointer at `EmitterResource + 0x128` for all four and sets the plugin type byte at `EmitterResource + 0xB6`: `EP01` = `1` (connection stripe), `EP02` = `2` (stripe), `EP03` = `3` (super stripe), `EP04` = `4` (area loop). `Emitter::Calculate` (`0x710000FEBC`) treats `0xB6 == 2` and `0xB6 == 3` as stripe and super-stripe when computing extended end time. Corpus payload sizes: `EP01 0x1C`, `EP02 0x28`, `EP03 0x60`, `EP04 0x4C` (one size each).
+
+Only fields whose executable use was traced are named; every other byte is `Unverified` with its corpus behavior given as a hint, never as proof. SDK member names are quoted only where the executable arithmetic matches.
+
+**`EP01` connection stripe (`ConnectionStripeSystem`, `0x710002AC84..0x710002DE1C`).**
+
+| Offset | Size | Type | Field | Evidence |
+|:---:|:---:|:---:|:---|:---|
+| `+0x0C` | 4 | `float` | `head_alpha` | `InitializeStripeEmitter` (`0x710002AD44`) copies it to the emitter user data `+0x00`; SDK `staticParam0.x = headAlpha` (`vfx_StripeConnection.cpp:211`). Corpus: always `1.0`. |
+| `+0x10` | 4 | `float` | `tail_alpha` | Copied to user data `+0x04` (`0x710002AD4C`); SDK `staticParam0.y = tailAlpha`. Corpus: `1.0` or `0`. |
+| `+0x00..+0x0B`, `+0x14`, `+0x18` | 12 + 8 | `bytes` | `unverified_*` | Not traced. SDK members `calcType`, `connectionType`, `option`, `numDivide` exist but their offsets/widths were not proven in this executable. Corpus: `+0x00` is `0x01000001`/`0x1`/`0`, `+0x04` is `0`/`3`, `+0x08` is `0`/`2`, `+0x14` is always `0`, `+0x18` is `1.0`/`0`. |
+
+**`EP02` stripe (`StripeSystem`, `0x7100021328..0x7100023308`).**
+
+| Offset | Size | Type | Field | Evidence |
+|:---:|:---:|:---:|:---|:---|
+| `+0x00` | 1 | `uint8` | `calc_type` | Tested as `(value - 1) <= 1` (values `1` and `2`) together with the emitter-resource byte `+0xE02` at `0x71000223FC`/`0x710002241C` in the stripe update (`StripeSystem::CalculateDelayedStripe`, `0x71000227F8`), the same condition as SDK `calcType == StripeOrientationType_EmitterMatrix || EmitterUpright` (`vfx_Stripe.cpp:425`). Corpus: `0` or `1`. |
+| `+0x01` | 1 | `uint8` | `emitter_follow` | Gates a separate branch at `0x7100022318` and `0x7100022348` that fetches the particle arguments through two `ParticleCalculateArgImpl` getters (`0x710001BAA4`, `0x7100D3136C`) before the history is written; it is the only per-stripe flag tested at this point of the SDK update (`emitterFollow`, `vfx_Stripe.cpp:359`). Corpus: always `0`. |
+| `+0x02` | 1 | `uint8` | `unverified_02` | `InitializeStripeEmitter` (`0x71000215F0`): the value `2` makes the emitter allocate its stripe vertex buffer through a System callback (`System + 0x28`); other values use the internal allocator. Corpus: `0` or `1` only (the value `2` never occurs). `ParticleCalculateCallback` and the emitter callbacks also test `+0x02 == 2` (`0x71000292EC`). Name of this mode not established. |
+| `+0x04` | 4 | `float` | `num_divide` | `fcvtzs` at `0x7100021598`: converted to int and used in the stripe vertex-count formula `(numHistory - 1) * numDivide + numHistory`. SDK `numDivide`. |
+| `+0x08` | 4 | `float` | `num_history` | `fcvtzs` at `0x71000215B8` (history length); passed to `CalculateDelayStripeCount`. SDK `numHistory`. |
+| `+0x10` | 4 | `float` | `head_alpha` | Copied to emitter user data `+0x10` (`0x7100021564`). SDK `staticParam0.x = headAlpha`. |
+| `+0x14` | 4 | `float` | `tail_alpha` | Copied to user data `+0x14` (`0x710002156C`). SDK `staticParam0.y = tailAlpha`. |
+| `+0x20` | 4 | `int32` | `static_param_z` | Converted with `scvtf` and stored to user data `+0x18` (`0x7100021574`). The SDK writes `0` here; the TotK name/meaning is unproven. Corpus: always `0`. |
+| `+0x24` | 4 | `float` | `static_param_w` | Stored to user data `+0x1C` (`0x7100021580`). Corpus: always `0`. |
+| `+0x1C` | 4 | `float` | `dir_interpolate` | `fcmp s1, #0` / multiply of the direction difference at `0x71000225B0`: values `<= 0` skip direction interpolation, otherwise the new direction is blended by this factor; SDK `dirInterpolate` (`vfx_Stripe.cpp:487-509`). Corpus: `0` or `1.0`. |
+| `+0x03`, `+0x0C`, `+0x18` | - | `bytes` | `unverified_*` | Not traced. `+0x03` (corpus `0`/`1`) is a plausible match for SDK `texturing` but no read was found; `+0x0C` is always `0`; `+0x18` is `0` or `1.0`. |
+
+**`EP03` super stripe (`SuperStripeSystem`, `0x7100023308..0x7100026444`).**
+
+| Offset | Size | Type | Field | Evidence |
+|:---:|:---:|:---:|:---|:---|
+| `+0x02` | 1 | `uint8` | `unverified_02` | Same buffer-allocation mode test as `EP02 +0x02` (`0x71000235B0`). Corpus: only `0`/`1` occur. |
+| `+0x0C` | 4 | `float` | `num_history` | `fcvtzs` at `0x710002355C`; vertex count is `numDivide * (numHistory - 1) + numHistory`. |
+| `+0x14` | 4 | `float` | `head_alpha` | Copied to user data `+0x10` (`0x710002352C`). |
+| `+0x18` | 4 | `float` | `tail_alpha` | Copied to user data `+0x14` (`0x7100023534`). |
+| `+0x1C` | 4 | `int32` | `num_divide` | Loaded as an integer at `0x710002357C` and used as the per-segment divide count. Corpus: `0`, `2`, `3`, `5`. |
+| `+0x50` | 4 | `float` | `head_scale` | Copied to user data `+0x18` (`0x710002353C`). Corpus: `1.0` mostly. |
+| `+0x54` | 4 | `float` | `tail_scale` | Copied to user data `+0x1C` (`0x7100023544`). Corpus: `1.0` or `0.1`. |
+| remaining bytes | - | `bytes` | `unverified_*` | Not traced (`+0x00..0x0B`, `+0x10`, `+0x20..0x4F`, `+0x58..0x5F`). The SDK names `calcType`, `emitterFollow`, `texturing0/1/2`, `textureUvMapType`, `historyAcceleration`, `historyVecRegulation`, `historyInitVecRotateCycle`, `historyVecInitSpeed`, `historyAirRegist` are hints only. |
+
+**`EP04` area loop (`AreaLoopSystem::Draw`, `0x710002E27C`).** Evidence: the draw function reads the payload as floats `[0..0xF]` and writes the uniform values shown; SDK `ResEPAreaLoop` / `AreaLoopSystem::Draw` (`vfx_AreaLoop.cpp`) describes the same sequence.
+
+| Offset | Size | Type | Field | Evidence |
+|:---:|:---:|:---:|:---|:---|
+| `+0x00` | 12 | `float[3]` | `repeat_offset` | Per-repeat accumulation: `offset.x += [0]`, `.y += [4]`, `.z += [8]` after each draw. SDK `repeatOffsetPos`. |
+| `+0x0C` | 4 | `float` | `repeat_num` | `(int)(value + 1)` draw iterations. SDK `repeatNum`. |
+| `+0x10` | 12 | `float[3]` | `area_size` | Written to constant-buffer `param3.xyz`. SDK `areaSize`. |
+| `+0x20` | 12 | `float[3]` | `area_pos` | Box translation (rotated by the camera billboard matrix in camera-loop mode). SDK `areaPos`. |
+| `+0x2C` | 4 | `float/int` | `clipping_type` | Converted `(float)(int)value` into constant-buffer `param2.x`. Corpus: always `0`. SDK `clippingType`. |
+| `+0x30` | 12 | `float[3]` | `alpha_ratio` | Written to constant-buffer `param1.xyz`. SDK `alphaRatio`. |
+| `+0x3C` | 4 | `float` | `is_camera_loop` | Zero builds the box matrix from the emitter SRT; nonzero builds it from the eye position/billboard matrix; also written to `param0.w`. SDK `isCameraLoop`. |
+| `+0x40` | 12 | `float[3]` | `area_rotate` | Euler rotation for the box matrix (`MakeRotationMatrixXYZ`). SDK `areaRotate`. Corpus: always `0`. |
+| `+0x1C`, `+0x24..+0x28 gap`, `+0x34..`, `+0x4x` | - | `bytes` | `unverified_*` | Not read by `Draw`. `+0x1C` and `+0x44..+0x4B` are always `0` in the corpus. The SDK clipping height is not read from this chunk by the TotK draw (it uses a runtime value at `Emitter + 0x3A8`). |
+
+### 3.4 Custom-data chunks (`CSDP CADP CUDP`)
+
+| FourCC | Resource slot | Evidence |
+|---|---:|---|
+| `CSDP` | `+0x3B8`, byte size `node.size - 0x20` at `+0x3F8` | `EmitterResource::InitializeConstantBuffer` (`0x710000AB94`) reserves a GPU buffer of that size and `EmitterResource::UpdateParams` (`0x710000BBE4`, `memcpy(mapped, *(+0x3B8), *(uint*)(+0x3F8))`) copies the payload verbatim. The payload is therefore the raw custom-shader uniform block (`sysCustomShaderUniformBlock1`); its member layout belongs to the effect's custom shader, not to the VFX library. Corpus: 19,438 chunks, payload `0x0C..0xE8`. |
+| `CADP` | `+0x3C0` | Pointer is handed to game callbacks only (`Emitter::Initialize` `0x7100001900`, `0x7100001988` area); opaque to `nn::vfx2`. Corpus: 2,673 chunks, payload `0x04..0xC0`. |
+| `CUDP` | `+0x3C8` | Same, opaque user data. No `CUDP` chunk exists in the shipped data. |

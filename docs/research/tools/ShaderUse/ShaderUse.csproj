@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Marrow's vendored ShaderLibrary decompiles Tegra bytecode to GLSL; adjust the path if Marrow lives elsewhere. -->
+    <ProjectReference Include="C:\Users\dylan\repos\Nintending\Tools\SHADERS5\Marrow\vendor\ShaderLibrary\ShaderLibrary.CompileTool\ShaderLibrary.CompileTool.csproj" />
+  </ItemGroup>
+</Project>
