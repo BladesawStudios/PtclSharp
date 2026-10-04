@@ -23,7 +23,7 @@ public static class VfxbLayouts
         0x60,
         0xA88,
         0x50,
-        []);
+        [0x9F8, 0xA18, 0xA38]);
 
     public static VfxbLayout TotK { get; } = new(
         PtclVersion.TotK_NintendoWareVfx2_15_3_1,
