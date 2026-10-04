@@ -19,8 +19,8 @@ source container
 
 The raw document is the source of truth for lossless same-version editing. It
 keeps the original container metadata, VFXB header, node graph, unknown bytes,
-attribute chunks, and original offsets. A writer should patch a copy of this
-data rather than reconstructing an EMTR from a partial semantic model.
+attribute chunks, and original offsets. The tree writer rebuilds structure from
+these nodes while copying opaque payloads and unverified byte ranges unchanged.
 
 This is the role currently started by `VfxbFile`, `VfxbNode`, and the
 container readers.
@@ -143,8 +143,9 @@ convertible.
 
 ### Same-version editing
 
-Use the raw document, patch confirmed fields, preserve unknown chunks, and
-write the original version/container. This is the lossless path.
+Use the raw document, update confirmed fields through typed views, preserve
+unknown chunks, and rebuild the tree in the original version/container. This is
+the lossless path.
 
 ### Cross-version conversion
 
@@ -172,5 +173,5 @@ silently.
 4. Normalize emitter-set names, emitter names, texture bindings, and the fields
    already mapped in the Ghidra ledgers.
 5. Add a validator that reports unsupported and unknown chunks before writing.
-6. Add same-version patching first, then cross-version writers.
+6. Add the tree writer and same-version rebuild first, then cross-version writers.
 7. Expand the normalized model only as new offsets and payloads are confirmed.

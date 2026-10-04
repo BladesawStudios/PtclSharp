@@ -143,9 +143,10 @@ not exposed under that semantic name.
 tree. `VfxbLayout` contains only offsets that differ by binary generation.
 
 Unknown bytes and nodes remain present in the original decoded data and raw node
-tree. Future writers should patch confirmed fields into a copy of those bytes.
-They should not reconstruct EMTR blocks from a partial semantic model, because
-that would erase unknown state.
+tree. The planned writer rebuilds the resource tree while carrying opaque node
+payloads and unverified byte ranges forward unchanged. It must not construct an
+EMTR solely from the partial semantic model, because that would erase unknown
+state.
 
 The current TotK executable-backed EMTR field ledger is in
 [`docs/research/totk-emtr-offsets-ghidra.md`](research/totk-emtr-offsets-ghidra.md).

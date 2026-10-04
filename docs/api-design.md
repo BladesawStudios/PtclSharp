@@ -2,7 +2,7 @@
 
 ## Principles
 
-1. **Lossless first.** The original VFXB bytes are the source of truth. Typed access is a *view* over bytes, never a re-serialization of a lossy model.
+1. **Lossless first.** The original VFXB bytes are the source of truth. Typed access is a view over bytes, and the tree writer carries unknown node payloads forward unchanged.
 2. **Evidence-gated fields.** A field only becomes a typed property when it has a `Confirmed` entry in the research docs. Everything else stays raw and is reachable by offset.
 3. **One normalized model, two layouts.** Game differences live in `EmitterLayout` tables, not in model classes.
 4. **Conversion is explicit and reports loss.** `Convert(source, target)` returns the document plus a `ConversionReport`.
@@ -14,7 +14,7 @@ Container (Yaz0 / Zstd+BYML)         exists: Container.cs
   -> VfxbFile / VfxbNode tree         exists: Vfxb.cs (lossless)
     -> EmitterView  (typed span view, layout-driven)       NEW
       -> EmitterModel (normalized, game-agnostic)          NEW
-        -> VfxbWriter(target layout)                       NEW
+        -> VfxbTreeWriter(target layout)                   NEW
 ```
 
 ## Layout tables (the only game-specific code)
@@ -81,7 +81,7 @@ public sealed class KeyTrack<T> { public Mode Mode; public T Constant; public IL
 var doc = PtclDocument.Load(path);              // detects game from VFXB version (20 / 51)
 foreach (var set in doc.EmitterSets)
     foreach (var emtr in set.Emitters) { emtr.Emission.Rate *= 2; }
-doc.Save(path);                                  // same-game: patches bytes in place
+doc.Save(path);                                  // same-game: rebuilds the node tree, preserving raw payloads
 
 var result = PtclConverter.Convert(doc, PtclGame.TotK);
 result.Document.Save(outPath);
@@ -98,11 +98,16 @@ foreach (var w in result.Report.Warnings) Console.WriteLine(w);
 | Shader indices, primitive indices, texture GUIDs | Never auto-remapped; report requires a caller-supplied resolver |
 | `Unverified` or unmapped bytes | Not converted; reported |
 
-## Open decisions for you
+## Decided and open questions
 
-1. **Same-game save:** patch bytes in place (safest, keeps unmapped data), or rebuild the tree? I recommend patch-in-place.
-2. **Attribute chunks (`EA*`, `FR*`, `CSDP`)**: keep as opaque `RawChunk` for now, or trace them next?
-3. **Strictness:** should `Unverified`/`Paired` fields be hidden from the typed API, or exposed with a flag?
+The writer will rebuild the VFXB node tree. Unknown node payloads and
+unverified byte ranges are retained as opaque data so rebuilding does not imply
+semantic reconstruction.
+
+Still open:
+
+1. **Attribute chunks (`EA*`, `FR*`, `CSDP`)**: keep as opaque `RawChunk` for now, or trace them next?
+2. **Strictness:** should `Unverified`/`Paired` fields be hidden from the typed API, or exposed with a flag?
 
 ## Prerequisite work before coding the model
 

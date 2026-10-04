@@ -55,6 +55,16 @@ Not yet decompiled or fully read: `ResolveBinaryData @ 0x710000ec80`, `Emitter::
 
 **Verified/corrected this session:**
 
+- Follow-up TotK audit: the VFXB node header is separate from EMTR data. `InitializeEmitterSetResource` proves FourCC/size/child/sibling/attribute/data-relative fields at node `+0x00/+0x04/+0x08/+0x0C/+0x10/+0x14`; therefore EMTR-data rows `0x000..0x00C` are not magic/size/version/flags and are now unverified.
+- Corrected pointer-domain mistakes in the old map: EMTR `0x050..0x05C`, `0x0A8..0x0AF`, `0x0B5..0x0BE`, and `0x0EC` had been named from similarly numbered offsets in live `Emitter`, `EmitterSet`, or `EmitterResource` objects. Those unsupported serialized labels were removed. `0xB0..0xD4` is a runtime overlay populated from the five loop-animation controls.
+- `0xE08` is confirmed lifetime; `0xE0C` is downward random lifetime percent. `0xE10` is not fade-in: it generates the W component of the initial-scale particle vector in `[1-value,1+value]`. `0xE14` remains unverified.
+- `0xF14` is not a cone angle. It adds a normalized XZ tangent times the field value to the shape-produced emission direction.
+- `0xCA1` is the actual particle-sort mode. `0xDEB` selects descending versus ascending camera-depth order for mode 2. `0xDFC` only selects shader bits and is not proven to be sorting.
+- `0xC10..0xC98`, `0xE00..0xE02`, `0xE46..0xE4B`, and `0xDFD..0xDFF` form the three-lane rotation-modulation/waveform system, not a normal-matrix block.
+- `0x110..0x12C` plus `0xF8C..0xF8F` form the alpha/scale waveform system. `0xE28..0xE44` are now tied to Color0, Alpha0, Color1, Alpha1, and Scale loop periods/random phase/interpolation modes.
+- Color modes `2` and `3` are interpolated-key and discrete-key selection respectively; mode 3 was incorrectly called random. The six texture mode bytes and UV-domain scale bytes were also neutralized and documented from their exact flag/table behavior.
+- Six flipbook runtime blocks are now mapped at `0x140..0x49F` (stride `0x90`). `0xE51..0xE56` select external versus internal resolution for the three graphics and three compute shader passes.
+
 - `0xE28..0xE3C`: five enable flags, five loop-style flags, and rates (`uint16` x4 at `0xE34..0xE3A`, `int32` at `0xE3C`). Confirmed by `UpdateParams`. The `loop_trackN` names mean only "index N". Which animation each drives is not proven.
 - `0xE78..0xE94`: **no reader found** in any decompiled TotK function. Relabeled `unverified_E78..E94`, BotW pairing removed.
 - Fade fields `0xCA9..0xCAC`, `0xD28`, `0xD2C`: confirmed by `CalculateAlpha*` and `GetScaleRate`.
