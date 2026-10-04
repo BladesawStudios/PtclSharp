@@ -204,11 +204,12 @@ This section supersedes the "Highest-value remaining TotK work" list in section 
 - `ESFT` and `GRTF` nodes never occur in shipped files (their payloads are unmapped); `FPAD` and `FGWD` chunks never occur either, so `FPAD`'s layout comes from the executable only and `FGWD` is opaque.
 - Rows verified in earlier sessions were not re-verified here. The 5-versus-6 track discrepancy, `0x8D8..0x8F4`, and all `Paired` rows are BotW tasks.
 
-### Library issues found while building the corpus (not fixed; the code model is still off limits)
+### Library issues found while building the corpus (fixed 2026-10-04 at the user's request)
 
-1. `VfxbReader.ReadEmitterSets` compares the ESET emitter count with direct `EMTR` children only. The count includes nested child emitters, so 58 shipped files throw (`ESET 'X' declares N emitters but has M EMTR children`). Fix: count all `EMTR` descendants.
-2. `VfxbReader.ReadSiblingChain` follows sibling offsets until `0xFFFFFFFF`; for the `G3PR` child chain this walks into G3D data in 4 shipped files. Fix: read exactly `DeclaredChildCount` children.
-3. The reader does not follow the `GRSN` child chain (`GRSR`, `GRRE`, `GRCE`), so shader archives are invisible to the tree. They are needed for a complete round trip.
+1. `VfxbReader.ReadEmitterSets` compared the ESET emitter count with direct `EMTR` children only; the count includes nested child emitters. Now every `EMTR` descendant is collected depth-first and `VfxbEmitter.Depth` records nesting.
+2. `VfxbReader.ReadSiblingChain` followed the `G3PR` child chain into G3D data in 4 files. Child chains are now bounded by the header child count.
+3. The `GRSN` child chain (`GRSR`, `GRRE`, `GRCE`, sometimes `GRSC`/`GRRI`/`GRCI`) is now read.
+All 1,592 shipped files now load. There is still no automated test project; the check was a scratch loader over the whole corpus.
 4. A tree-based writer must reproduce: per-kind `size` rules, `0x100`-aligned `EMTR` data, `0x1000`-aligned `G3PR` and `GRSR` data, parent-sibling spans that include nested children, and the `child_count` header word (all documented in section 1D).
 
 ### Method notes for the next session

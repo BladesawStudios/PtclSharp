@@ -12,6 +12,9 @@
   <Folder Name="/lib/ZstdSharp/src/">
     <Project Path="lib/ZstdSharp/src/ZstdSharp/ZstdSharp.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/PtclSharp.Tests/PtclSharp.Tests.csproj" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/PtclSharp/PtclSharp.csproj" />
   </Folder>

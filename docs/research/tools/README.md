@@ -23,3 +23,14 @@ python exe/audit.py "E14 E14 E17"    # scan the vfx2 code for readers of EMTR da
 
 Evidence rules (from `verification-handoff.md`) still apply: an offset appearing in a scan is a lead, not proof; read the
 instruction context and establish the pointer base before naming a field.
+
+## Layout generation and tests
+
+`gen/gen_layouts.py` turns the byte-map tables of the two research docs into `src/PtclSharp/Layout/{Totk,Botw}EmitterFields.g.cs`
+(run `python docs/research/tools/gen/gen_layouts.py docs/research src/PtclSharp/Layout`). Until the C# tables become the primary
+source, edit the doc row and regenerate; hand-written layouts (file/node header, ESET, chunks) live in
+`src/PtclSharp/Layout/TotkLayouts.cs` and `BotwLayouts.cs`.
+
+`tests/PtclSharp.Tests` validates the tables (no files needed) and, when `PTCL_TOTK_ROMFS` points at a TotK romfs root,
+checks them against all shipped effect files: every file loads, declared emitter counts, node order, alignment, chunk
+payload sizes, and a lossless read/rewrite of every emitter field.

@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Text;
+using PtclSharp.Layout;
 
 namespace PtclSharp;
 
@@ -82,10 +83,12 @@ public sealed class VfxbNode
     public List<VfxbNode> Attributes { get; } = [];
 }
 
+/// <param name="Depth">0 for a top-level emitter, 1 for a child emitter nested inside another EMTR node.</param>
 public sealed record VfxbEmitter(
     string Name,
     IReadOnlyList<ulong?> TextureSamplerGuids,
-    VfxbNode Node);
+    VfxbNode Node,
+    int Depth = 0);
 
 public sealed record VfxbEmitterSet(
     string Name,
@@ -115,6 +118,25 @@ public sealed class VfxbFile
     public VfxbHeader Header { get; }
     public IReadOnlyList<VfxbNode> Roots { get; }
     public IReadOnlyList<VfxbEmitterSet> EmitterSets { get; }
+
+    /// <summary>The version-specific field layouts for this file.</summary>
+    public PtclLayoutSet Layouts => PtclLayouts.For(Layout.RuntimeVersion);
+
+    /// <summary>A typed, zero-copy view of an emitter's data block. Writes go straight into <see cref="Data"/>.</summary>
+    public StructView EmitterView(VfxbEmitter emitter)
+    {
+        int offset = emitter.Node.DataOffset
+            ?? throw new InvalidDataException($"EMTR node at 0x{emitter.Node.Offset:X} has no data block.");
+        return new StructView(Layouts.Emitter, Data.AsSpan(offset, Layout.EmitterFixedDataSize));
+    }
+
+    /// <summary>A typed, zero-copy view of an emitter set's data block.</summary>
+    public StructView EmitterSetView(VfxbEmitterSet set)
+    {
+        int offset = set.Node.DataOffset
+            ?? throw new InvalidDataException($"ESET node at 0x{set.Node.Offset:X} has no data block.");
+        return new StructView(Layouts.EmitterSet, Data.AsSpan(offset, Layout.EmitterSetFixedDataSize));
+    }
 }
 
 public static class VfxbReader
@@ -182,21 +204,30 @@ public static class VfxbReader
                 _ => throw new InvalidOperationException(
                     $"Unsupported emitter-count size {layout.EmitterSetEmitterCountSize}.")
             };
-            VfxbEmitter[] emitters = setNode.Children
-                .Where(x => x.Kind == "EMTR")
-                .Select(x => ReadEmitter(data, x, layout))
-                .ToArray();
+            // The declared count includes child emitters nested inside EMTR nodes (child_rel > 0 on the
+            // EMTR), so collect every EMTR descendant depth-first rather than only direct children.
+            var collected = new List<VfxbEmitter>();
+            void Collect(IEnumerable<VfxbNode> nodes, int depth)
+            {
+                foreach (VfxbNode node in nodes.Where(x => x.Kind == "EMTR"))
+                {
+                    collected.Add(ReadEmitter(data, node, layout, depth));
+                    Collect(node.Children, depth + 1);
+                }
+            }
+            Collect(setNode.Children, 0);
+            VfxbEmitter[] emitters = collected.ToArray();
 
             if (declaredCount != emitters.Length)
                 throw new InvalidDataException(
-                    $"ESET '{name}' declares {declaredCount} emitters but has {emitters.Length} EMTR children.");
+                    $"ESET '{name}' declares {declaredCount} emitters but has {emitters.Length} EMTR nodes (including nested child emitters).");
 
             result.Add(new VfxbEmitterSet(name, declaredCount, emitters, setNode));
         }
         return result;
     }
 
-    private static VfxbEmitter ReadEmitter(byte[] data, VfxbNode node, VfxbLayout layout)
+    private static VfxbEmitter ReadEmitter(byte[] data, VfxbNode node, VfxbLayout layout, int depth)
     {
         int dataOffset = RequireDataOffset(node);
         EnsureRange(data, dataOffset, layout.EmitterFixedDataSize, "EMTR fixed data");
@@ -210,31 +241,38 @@ public static class VfxbReader
         return new VfxbEmitter(
             ReadFixedString(data, dataOffset + 0x10, 0x40),
             textureGuids,
-            node);
+            node,
+            depth);
     }
 
     private static List<VfxbNode> ReadSiblingChain(
         byte[] data,
         int startOffset,
         HashSet<int> ancestry,
-        bool recurseIntoChildren)
+        bool recurseIntoChildren,
+        int maxNodes = int.MaxValue)
     {
         var nodes = new List<VfxbNode>();
         var siblings = new HashSet<int>();
         int offset = startOffset;
-        while (offset != -1)
+        while (offset != -1 && nodes.Count < maxNodes)
         {
             if (!siblings.Add(offset))
                 throw new InvalidDataException($"VFXB sibling cycle at 0x{offset:X}.");
             VfxbNode node = ReadNode(data, offset);
             nodes.Add(node);
 
-            if (recurseIntoChildren && node.DeclaredChildCount > 0 && node.ChildRelativeOffset > 0)
+            // A positive header child count bounds the child chain: the chain is not always terminated
+            // (for G3PR the G3NT sibling offset can point into the G3D data). GRSN has child_rel > 0 with a
+            // zero count; its chain (GRSR, GRRE, GRCE) is terminated normally.
+            if (recurseIntoChildren && node.ChildRelativeOffset > 0
+                && (node.DeclaredChildCount > 0 || node.Kind == "GRSN"))
             {
                 if (!ancestry.Add(offset))
                     throw new InvalidDataException($"VFXB child cycle at 0x{offset:X}.");
                 node.Children.AddRange(ReadSiblingChain(
-                    data, checked(offset + node.ChildRelativeOffset), ancestry, true));
+                    data, checked(offset + node.ChildRelativeOffset), ancestry, true,
+                    node.DeclaredChildCount > 0 ? node.DeclaredChildCount : int.MaxValue));
                 ancestry.Remove(offset);
             }
             if (node.AttributeRelativeOffset > 0)
