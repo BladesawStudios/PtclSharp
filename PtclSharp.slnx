@@ -1,5 +1,18 @@
 <Solution>
+  <Folder Name="/lib/" />
+  <Folder Name="/lib/BymlSharp/" />
+  <Folder Name="/lib/BymlSharp/src/">
+    <Project Path="lib/BymlSharp/src/BymlSharp/BymlSharp.csproj" />
+  </Folder>
+  <Folder Name="/lib/Yaz0Sharp/" />
+  <Folder Name="/lib/Yaz0Sharp/src/">
+    <Project Path="lib/Yaz0Sharp/src/Yaz0Sharp/Yaz0Sharp.csproj" />
+  </Folder>
+  <Folder Name="/lib/ZstdSharp/" />
+  <Folder Name="/lib/ZstdSharp/src/">
+    <Project Path="lib/ZstdSharp/src/ZstdSharp/ZstdSharp.csproj" />
+  </Folder>
   <Folder Name="/src/">
-    <Project Path="src/PtclSharp.csproj" />
+    <Project Path="src/PtclSharp/PtclSharp.csproj" />
   </Folder>
 </Solution>

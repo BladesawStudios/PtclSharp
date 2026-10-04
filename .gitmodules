@@ -4,3 +4,6 @@
 [submodule "lib/ZstdSharp"]
 	path = lib/ZstdSharp
 	url = https://github.com/BladesawStudios/ZstdSharp
+[submodule "lib/Yaz0Sharp"]
+	path = lib/Yaz0Sharp
+	url = https://github.com/BladesawStudios/Yaz0Sharp
