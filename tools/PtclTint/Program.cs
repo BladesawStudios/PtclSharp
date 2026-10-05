@@ -3,7 +3,7 @@
 //   PtclTint <in.esetb.byml.zs> <ZsDic.pack.zs> <out.esetb.byml.zs> [--rename-set from=to ...] [--recolor <gMul>,<bMul>,<swap 0|1>]
 //                            [--width <factor>] [--only-set <name> ...]
 //                            [--botw <file.sesetlist> --keys <emitter>=<BotW emitter> ...]
-//                            [--round <emitter>] [--peak <emitter>=P] [--paint <emitter>=r,g,b] [--gain <emitter>=f] [--scale <emitter>=x,y,z] [--drop <emitter>]
+//                            [--round <emitter>] [--still <emitter>] [--peak <emitter>=P] [--paint <emitter>=r,g,b] [--gain <emitter>=f] [--scale <emitter>=x,y,z] [--drop <emitter>]
 //
 // --recolor gMul,bMul,swap: for every colour (the colour key frames, the constant colours and the emitter colours) the new green is
 //   gMul * old green and the new blue is bMul * old blue; with swap=1 the old green and blue trade places first. Fire orange
@@ -16,6 +16,8 @@
 //   color0_mode is not 2) times the scale equals P. Colours far above ~30 clip to flat white, and the bloom then glows white, not in the hue.
 // --round: makes the emitter's scale animation (kf_scale) and particle_scale_xyz uniform (all three axes take the x value), for emitters whose
 //   effect is oriented along the beam and would otherwise look stretched. Applied after --scale.
+// --still: zeroes designated_direction_speed (the drift along the effect's Y axis, which for a hit effect is the beam direction, so a plume that rises
+//   comes out stretched along the beam) and particle_scale_rnd (per-axis random scale, which makes puffs lopsided), so the emitter stays a round puff.
 // --paint: replaces the hue of one emitter's colours with r,g,b, keeping each colour's brightness (its largest channel).
 // --gain: multiplies the emitter's particle_color_rgb_scale (HDR intensity: this is what feeds the bloom).
 // --scale: multiplies the emitter's particle_scale_xyz by x,y,z. --drop: removes the emitter. (Emitter names are the input file's.)
@@ -39,6 +41,7 @@ string? botwPath = null;
 var keys = new Dictionary<string, string>(StringComparer.Ordinal);
 var peaks = new Dictionary<string, float>(StringComparer.Ordinal);
 var rounds = new HashSet<string>(StringComparer.Ordinal);
+var stills = new HashSet<string>(StringComparer.Ordinal);
 var drops = new HashSet<string>(StringComparer.Ordinal);
 float[] Floats(string text) => text.Split(',').Select(t => float.Parse(t, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
 float gMul = 1, bMul = 1, width = 1;
@@ -54,6 +57,7 @@ for (int i = 3; i < args.Length; i++)
     else if (args[i] == "--keys" && args[++i].Split('=', 2) is { Length: 2 } d) keys[d[0]] = d[1];
     else if (args[i] == "--peak" && args[++i].Split('=', 2) is { Length: 2 } pk) peaks[pk[0]] = Floats(pk[1])[0];
     else if (args[i] == "--round") rounds.Add(args[++i]);
+    else if (args[i] == "--still") stills.Add(args[++i]);
     else if (args[i] == "--drop") drops.Add(args[++i]);
     else if (args[i] == "--width") width = float.Parse(args[++i], System.Globalization.CultureInfo.InvariantCulture);
     else if (args[i] == "--recolor")
@@ -220,6 +224,11 @@ foreach (VfxbTreeNode set in document.Sets)
             float px = view.GetSingle("particle_scale_xyz", 0);
             view.SetSingle("particle_scale_xyz", px, 1);
             view.SetSingle("particle_scale_xyz", px, 2);
+        }
+        if (stills.Contains(emitter))
+        {
+            view.SetSingle("designated_direction_speed", 0);
+            for (int k = 0; k < 3; k++) view.SetSingle("particle_scale_rnd", 0, k);
         }
         if (width != 1)
         {

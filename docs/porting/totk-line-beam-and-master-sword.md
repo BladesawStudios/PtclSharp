@@ -295,3 +295,19 @@ set (`Fire_Outside`, `Fire_Spark`, `Fire_PointLight`) with `--paint` pink: it ke
 Nothing spawns it yet. The vanilla spawn point is the shooter's own position, and our Toggle beam's actor sits at the muzzle, so spawning at the
 impact needs an AI that casts a ray (`QueryPhysicsCastRayEntity`: `StartPos`/`EndPos` in, `HitPos`/`IsHit` out) and feeds `HitPos` to the shoot node's
 `Center`; the beam actor would also need a `ShooterParam`. That graph is not built.
+
+### 8.9 Spawning the fire field at the beam's impact (AI + Shooter), and the first-hit flame
+
+`scripts/make_beam_ainb2.py` builds the beam actor's AI from copies of two vanilla AINBs: the Drake burst beam's (state selector, frame counter, sleep,
+the shoot node and its "slot free" query) and the Goron boss's `QueryPhysicsRayCastCheckGroundPos` module (three `QueryPhysicsOutputLayerEntity` layer
+queries, layers 8/9/10, the `QueryPhysicsCastRayEntity` node and its `start + direction * distance` expression node). Graph, in every state but Sleep,
+under a Simultaneous node: (1) the lifetime timer (as before); (2) cast a ray from `Actor.Pos` along `Actor.Forward` (the beam fires along local Z) for
+300 m; if it hits and a shooter slot is free, `ExecuteShooterPrepareAndShootInShapeFormation` shoots the fire field with `Center` = the ray's `HitPos`
+(second Vector3F output of the cast node). Expression functions found in the vanilla AINB dumps: `Actor.Pos`, `Actor.Forward`, `Actor.Up`, `Actor.Right`,
+`GetBBCode*`, vector math. The beam gets a `ShooterParam` (a copy of the Drake burst beam's, `Actor` = the fire field, the same `KeyHash` that pairs with the
+node's `ActorName` "OnHitGroundExplosion") and `ShooterRef`. The generator validates every index (queries, plugs, sources, expressions, one root, unique GUIDs).
+The slot count (`MaxActors 1`) is the throttle: a new field is shot when the previous one has finished.
+
+The first-hit flame (`FireRoot_00`, a one-shot burst) was stretched along the beam because its drift velocity (`designated_direction_speed`) runs along the
+effect's Y axis, which for a hit effect is the beam direction, and its per-axis random scale (`particle_scale_rnd`) made it lopsided: `PtclTint --still`
+zeroes both.

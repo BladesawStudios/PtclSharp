@@ -59,7 +59,7 @@ public sealed class GanonBeamMod
 
     public void Build(string effectFile, string? texturesDir, string? fireEffectFile = null)
     {
-        BuildActorPack();
+        BuildActorPack(fireEffectFile is not null);
         BuildSwordPack("Weapon_Sword_070");
         BuildSwordPack("Weapon_Sword_077");
         if (fireEffectFile is not null) BuildFireFieldPack();
@@ -101,7 +101,7 @@ public sealed class GanonBeamMod
         Console.WriteLine($"  wrote {relative} ({data.Length:N0} bytes)");
     }
 
-    private void BuildActorPack()
+    private void BuildActorPack(bool withFireField)
     {
         Console.WriteLine($"actor pack {Actor} (copy of {Donor})");
         var pack = new PackEdit(ReadVanillaPack(Donor, out uint dict));
@@ -149,7 +149,7 @@ public sealed class GanonBeamMod
         foreach (string unused in pack.Names.Where(n => n.StartsWith("Chemical/") || n == pack.Find("Component/ChemicalParam/" + Actor)).ToList())
             pack.Remove(unused);
 
-        AddLifetimeAi(pack);
+        AddLifetimeAi(pack, withFireField);
 
         WriteOut(Path.Combine("Pack", "Actor", Actor + ".pack.zs"), _dictionaries.Compress(pack.ToSarc(), dict));
     }
@@ -159,7 +159,7 @@ public sealed class GanonBeamMod
     /// beam is a projectile that ends itself). So the actor gets an AI of its own: a frame counter that, past <see cref="BeamFrames"/>,
     /// runs OneShotShootableRequestSleep. The AINB is a trimmed copy of the Drake fire burst beam's (scripts/make_beam_ainb.py).
     /// </summary>
-    private void AddLifetimeAi(PackEdit pack)
+    private void AddLifetimeAi(PackEdit pack, bool withFireField)
     {
         const string AiDonor = "Drake_Burst_Beam_Small_Fire";
         var donor = new PackEdit(ReadVanillaPack(AiDonor, out _));
@@ -169,13 +169,35 @@ public sealed class GanonBeamMod
         string built = Path.Combine(work, Actor + ".root.ainb");
         File.WriteAllBytes(source, donor.Get($"AI/{AiDonor}.root.ainb"));
 
-        string script = Path.Combine(AppContext.BaseDirectory, "scripts", "make_beam_ainb.py");
-        var start = new ProcessStartInfo(_python, $"\"{script}\" \"{source}\" \"{built}\" {BeamFrames} {Actor}.root")
-        { RedirectStandardOutput = true, RedirectStandardError = true };
+        string arguments;
+        string script;
+        if (withFireField)
+        {
+            // Lifetime plus a fire-field spawner: a ray cast along the beam and a shoot node fed with the hit point (scripts/make_beam_ainb2.py).
+            const string RayModule = "AI/Dungeonboss_Goron.QueryPhysicsRayCastCheckGroundPos.module.ainb";
+            string rayPath = Path.Combine(work, "ray.module.ainb");
+            File.WriteAllBytes(rayPath, new PackEdit(ReadVanillaPack("Enemy_DungeonBoss_Goron", out _)).Get(RayModule));
+            script = Path.Combine(AppContext.BaseDirectory, "scripts", "make_beam_ainb2.py");
+            arguments = $"\"{script}\" \"{source}\" \"{rayPath}\" \"{built}\" {BeamFrames} {Actor}.root {BeamRange}";
+
+            // The beam fires the field through a Shooter of its own, in the same slot the Drake burst beam uses (KeyHash pairs with the AI node's
+            // ActorName "OnHitGroundExplosion").
+            const string ShooterFile = "Component/ShooterParam/Drake_Burst_Beam_Small.game__component__ShooterParam.bgyml";
+            string shooter = $"Component/ShooterParam/{Actor}.game__component__ShooterParam.bgyml";
+            pack.Add(shooter, donor.Get(ShooterFile));
+            pack.Edit(shooter, root => BymlEdit.SetString(root.AsMap["ShootableActorSettings"].AsArray[0], "Actor", $"Work/Actor/{FireActor}.engine__actor__ActorParam.gyml"));
+            pack.Edit($"Actor/{Actor}.engine__actor__ActorParam.bgyml", root => root.AsMap["Components"].AsMap["ShooterRef"] = Byml.From("?" + shooter));
+        }
+        else
+        {
+            script = Path.Combine(AppContext.BaseDirectory, "scripts", "make_beam_ainb.py");
+            arguments = $"\"{script}\" \"{source}\" \"{built}\" {BeamFrames} {Actor}.root";
+        }
+        var start = new ProcessStartInfo(_python, arguments) { RedirectStandardOutput = true, RedirectStandardError = true };
         using Process process = Process.Start(start)!;
         string output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
         process.WaitForExit();
-        if (process.ExitCode != 0) throw new InvalidOperationException("make_beam_ainb.py failed:\n" + output);
+        if (process.ExitCode != 0) throw new InvalidOperationException("the AINB script failed:\n" + output);
 
         pack.Add($"AI/{Actor}.root.ainb", File.ReadAllBytes(built));
         string info = $"AI/AIInfo/{Actor}.engine__actor__AIInfo.bgyml";
