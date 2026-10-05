@@ -176,3 +176,23 @@ behave like BotW's. Traced in TotK for the second symptom:
 - **Still open**: BotW's effect width (`BeamBase+0xc80`, set by `setProperties` from the owner; not in the actor's param lists), the
   0 -> `BeamRange` growth over time (TotK reads the blackboard range once at start; growth would need an AI node writing
   `BeamosBeamRange` each frame, or a code patch), the `Barrier` hit variant, and why the effect is nearly invisible.
+
+### 8.1 Second test: still never ends, nearly invisible
+
+Findings from the second round (no new in-game result yet for the fixes below):
+
+- **RSDB rows carry per-actor memory and culling data.** `InstanceHeapSize` is 47,776 for the AI-less `Drake_Beam_Small` but about
+  56,500 for the AI-carrying `Drake_Burst_Beam_Small_Fire`; the cloned row now uses 56,528 so the AI can be allocated. The Drake rows
+  also have `CalcRadius`/`DisplayRadius` 80 and `LoadRadius` 180 (distance culling radii of the actor itself).
+- **BotW's width is 1.0, by code.** `LineBeam`'s creation function (`0x6f331c` in the BotW text; stores range `+0xd14`, width `+0xc80`,
+  growth frames `+0xd18`) receives the width as a literal `1.0` from all three callers; the range is the action's `BeamRange` (300)
+  and the growth frames come from a virtual call on the action (or -1). The BotW effect is therefore authored for scale 1: its
+  body emitters have `particle_scale_xyz` of only `0.01..0.03` on unit models (a ~1 cm hot core, colour x500 HDR) plus one 1 m wide
+  glow (`Light_Long`); TotK's Drake body emitter is `0.7`. Seen in game: nearly invisible at range, visible when something is close.
+  The hit sets are large (`4..40`), which is why the hit effect shows.
+- **Tools** (scratch, not committed): an emitter field dumper (`PtclSharp` layouts) and a G3D model bounds dumper; both models and
+  emitter data confirm the unit-size geometry.
+- **Changes**: the lifetime timer now runs in every state but Sleep; `Beam_Top` no longer carries the donor's `Scale = 1.875` (BotW
+  has none; it has `valDampDist = 1000`, `valDrawPriority = 129`); `BeamRadiusScaleDisplay` is `GanonBeamMod.BeamWidth` (10) to
+  make the thin core visible. This departs from BotW's 1.0 on purpose: TotK has no equivalent of whatever made the BotW core read
+  as thick (bloom strength, shader), so it is a visual compromise to tune.

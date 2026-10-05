@@ -1,6 +1,6 @@
 """Builds the Ganon beam actor's AI from a copy of a vanilla AINB (never edits the vanilla file).
 
-The graph is: an S32 selector on the shootable's state (Sleep 0, Prepare 1, Shoot 2, Stationary 3). While the state is Shoot a
+The graph is: an S32 selector on the shootable's state (Sleep 0, Prepare 1, Shoot 2, Stationary 3). While the state is not Sleep a
 frame counter feeds a BoolSelector; once the counter passes `frames` its True branch runs OneShotShootableRequestSleep (the
 shootable returns to its shooter's pool, which also fades its effects), otherwise the node reports success. In every other state
 the selector's default branch just reports success. Every node is taken unchanged from Drake_Burst_Beam_Small_Fire.root.ainb.
@@ -19,10 +19,17 @@ nodes = {n["Node Index"]: n for n in d["Nodes"]}
 for c in nodes[5]["Plugs"]["Child"]:
     if c["Name"] == "True":
         c["Node Index"] = 11
-for c in nodes[1]["Plugs"]["Child"]:
-    if not c.get("Is Default"):
-        c["Node Index"] = 5
-        c["Condition"] = 2
+# Any state but Sleep (Prepare 1, Shoot 2, Stationary 3) runs the timer: that way it does not matter which of them a Toggle reports.
+selector_children = nodes[1]["Plugs"]["Child"]
+template = next(c for c in selector_children if not c.get("Is Default"))
+default = next(c for c in selector_children if c.get("Is Default"))
+selector_children[:] = []
+for state in (1, 2, 3):
+    child = dict(template)
+    child["Node Index"] = 5
+    child["Condition"] = state
+    selector_children.append(child)
+selector_children.append(default)
 
 # old index -> new index
 keep = [0, 1, 2, 5, 8, 6, 11]  # state query, state selector(root), success, BoolSelector, VFRCounter, success, RequestSleep
