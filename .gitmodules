@@ -13,3 +13,6 @@
 [submodule "lib/TxtgSharp"]
 	path = lib/TxtgSharp
 	url = https://github.com/BladesawStudios/TxtgSharp
+[submodule "lib/BfresLibrary"]
+	path = lib/BfresLibrary
+	url = https://github.com/BladesawStudios/BfresLibrary
