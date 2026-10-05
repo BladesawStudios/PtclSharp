@@ -102,6 +102,10 @@ public sealed class GanonBeamMod
             }
         });
 
+        // The Toggle controller casts its ray along one local axis of the actor. The donor uses Y (a Drake's mouth bone); a shot actor
+        // faces along its local Z, which is also BotW's BeamDir (0, 0, 1). With Y the beam fires straight up.
+        pack.Edit(pack.Find("Component/ShootableParam/" + Actor), root => BymlEdit.SetString(root, "ToggleRayVector", "ShootableToggleRayZ"));
+
         pack.Edit(pack.Find("GameBalance/AttackParam/" + Actor), root => BymlEdit.SetNumber(root, "BaseAttackPower", BaseAttackPower));
 
         // The donor is a fire beam; this one is not.

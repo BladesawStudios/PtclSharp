@@ -221,3 +221,26 @@ There is no data switch for it (the only other condition is an invalid shooter l
 (`tools/TotkModKit/patches/GanonBeastBeam_NoOcclusionKill.pchtxt`, TotK 1.2.1 build id `9B4E4365...F850`): the `bl 0x7101743ea8` at
 `0x7101746984` (text offset `0x1746984`) becomes `mov w0, #0`. Only the Toggle update's call is changed; the other caller
 (`FUN_7101744fe8`) is untouched. Built output is in `converted/GanonBeastMod/exefs/` (also an IPS32 for Atmosphere-style loaders).
+
+### 8.4 Bisect result: the pipeline works, the converted effect is what is invisible
+
+With `TotkModKit --elink-user Drake_Beam_Small_Fire` (the same actor, sword packs, lifetime AI and exefs patch, emitting through the *vanilla*
+Drake fire effect) the sword fires a long beam with the Drake's base flame, so spawning, matrix, `(1, length)` scaling, lifetime and
+the occlusion patch are all fine. (It fired straight up: see below.) The faults are in the converted BotW emitters:
+
+- BotW's body emitters are ~1 cm wide (`particle_scale` 0.01..0.03 on unit models, colour x500 HDR, drawn with BotW's bloom); TotK's
+  Drake body emitters are 0.6..2 m (and the glow 6x20x10). The donor shaders do not reproduce BotW's HDR/bloom look.
+- Field differences against the vanilla donor emitter that matter: `blend_mode_index` (donor 1, converted 0), `draw_path` (8 / 7),
+  `particle_color_rgb_scale` (0.2 / 500), the donor's `unverified_shader_param_BD0_C0F` block, and `emitter_trans`.
+
+Working route for now: `tools/PtclTint` re-skins a vanilla TotK effect (reads it, renames the sets, shifts colours with
+`--recolor g,b,swap`, scales the width with `--width`). The body is TotK's own beam emitters tinted from fire-orange to BotW's magenta:
+```
+PtclTint Drake_Beam_Small_Fire.Nin_NX_NVN.esetb.byml.zs ZsDic.pack.zs out.esetb.byml.zs --only-set Enm_Drake_Beam_Small_Fire
+  --only-set Enm_Drake_Beam_Small_Top_Fire --rename-set Enm_Drake_Beam_Small_Fire=GanonBeast_Beam
+  --rename-set Enm_Drake_Beam_Small_Top_Fire=GanonBeast_BeamHit --recolor 1,1.4,1
+```
+
+Aim: the Toggle controller casts along `ToggleRayVector` (`ShootableToggleRayX/Y/Z`, local axes of the actor); the donor's Y fires
+straight up, a shot actor faces local Z (and BotW's `BeamDir` is `(0, 0, 1)`), so the actor's ShootableParam now sets
+`ToggleRayVector = ShootableToggleRayZ`.
