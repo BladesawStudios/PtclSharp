@@ -35,6 +35,20 @@ internal static class LayoutBuilders
         yield return F32(prefix + "_keys", at + 0x18, C, evidence, count: 32);
     }
 
+    /// <summary>
+    /// The BotW (nn::vfx) 8-key animation sub-block of the field chunks (0x94 bytes at <paramref name="at"/>): enable, loop,
+    /// start_random, key_count, loop_num, then eight (x, y, z, time) keys. It has no interpolation word.
+    /// </summary>
+    internal static IEnumerable<FieldDef> Anim8KeyV20(string prefix, int at, string evidence)
+    {
+        yield return U32(prefix + "_enable", at + 0x00, C, evidence);
+        yield return U32(prefix + "_loop", at + 0x04, C, evidence);
+        yield return U32(prefix + "_start_random", at + 0x08, C, evidence);
+        yield return I32(prefix + "_key_count", at + 0x0C, C, evidence);
+        yield return I32(prefix + "_loop_num", at + 0x10, C, evidence);
+        yield return F32(prefix + "_keys", at + 0x14, C, evidence, count: 32);
+    }
+
     /// <summary>The generic TotK/BotW node header (0x20 bytes that precede every node).</summary>
     internal static StructLayout NodeHeader(FieldStatus confirmedStatus) => new("NodeHeader", 0x20,
     [

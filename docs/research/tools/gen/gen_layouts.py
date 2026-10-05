@@ -1,7 +1,7 @@
 """Generates src/PtclSharp/Layout/{Totk,Botw}EmitterFields.g.cs from the research docs.
 usage: python gen_layouts.py <docs/research dir> <src/PtclSharp/Layout dir>
 Status rules: TotK rows named unverified_* are Unverified, unused_* are Unused, every other row is Confirmed (as claimed by the doc).
-BotW rows are Paired when the same field name exists in the TotK map, otherwise Unverified (BotW has not been re-verified)."""
+BotW rows carry an explicit Status column (Confirmed/Paired/Unverified/Unused); a BotW table without it falls back to Paired/Unverified by name."""
 import re,sys,os
 from parse_maps import parse,elem
 ESIZE={'U8':1,'I8':1,'U16':2,'I16':2,'U32':4,'I32':4,'U64':8,'I64':8,'F32':4}
@@ -49,6 +49,6 @@ if __name__=='__main__':
     os.makedirs(outdir,exist_ok=True)
     s,w=gen(totk,'totk',lambda r:'Unverified' if r['name'].startswith('unverified') else ('Unused' if r['name'].startswith('unused') else 'Confirmed'),'TotkEmitterFields')
     open(os.path.join(outdir,'TotkEmitterFields.g.cs'),'w',encoding='utf-8',newline='\n').write(s); print('totk',len(totk),'size mismatches',w)
-    s,w=gen(botw,'botw',lambda r:'Paired' if r['name'] in tnames else 'Unverified','BotwEmitterFields')
+    s,w=gen(botw,'botw',lambda r:r['status'] or ('Paired' if r['name'] in tnames else 'Unverified'),'BotwEmitterFields')
     open(os.path.join(outdir,'BotwEmitterFields.g.cs'),'w',encoding='utf-8',newline='\n').write(s); print('botw',len(botw),'size mismatches',w)
-    pc=sum(1 for r in botw if r['name'] in tnames); print('botw paired',pc,'of',len(botw))
+    import collections; print('botw',collections.Counter(r['status'] for r in botw))

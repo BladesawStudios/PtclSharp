@@ -65,12 +65,22 @@ public class LayoutTests
     }
 
     [Fact]
-    public void BotwEmitterIsNotClaimedAsConfirmedBeforeItIsReverified()
+    public void BotwEmitterFieldsAreFullyAccountedFor()
     {
         EmitterLayout emitter = PtclLayouts.For(PtclVersion.BotW_NintendoWareVfx_4_4_0).Emitter;
-        Assert.DoesNotContain(emitter.Fields, f => f.Status == FieldStatus.Confirmed);
-        Assert.Contains(emitter.Fields, f => f.Status == FieldStatus.Paired);
-        Assert.Null(emitter.KeyframeTrackCount);
+
+        // Every byte of the 0xA88-byte block is a named field or an explicit unused/unverified range.
+        Assert.Empty(emitter.Gaps);
+        Assert.Equal(3, emitter.TextureSlotCount);
+        Assert.Equal(6, emitter.KeyframeTrackCount);
+        Assert.Equal(emitter.Size, Enum.GetValues<FieldStatus>().Sum(emitter.BytesWithStatus));
+        Assert.All(emitter.Fields, f =>
+        {
+            Assert.Equal(f.Name.StartsWith("unused", StringComparison.Ordinal), f.Status == FieldStatus.Unused);
+            Assert.Equal(f.Name.StartsWith("unverified", StringComparison.Ordinal), f.Status == FieldStatus.Unverified);
+        });
+        Assert.All(emitter.Fields.Where(f => f.IsUnused), f => Assert.Null(f.Hypothesis));
+        Assert.True(emitter.BytesWithStatus(FieldStatus.Confirmed) > emitter.BytesWithStatus(FieldStatus.Unverified));
     }
 
     [Fact]

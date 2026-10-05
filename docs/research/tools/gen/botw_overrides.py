@@ -1,0 +1,22 @@
+"""Evidence upgrades found after the first pass; applied by botw_rows.py (name -> (status, evidence))."""
+OVERRIDES = {
+    'sim_flags': ('Confirmed', 'Emitter draw gate (`FUN_7100aca518`, 0x7100aca538): the emitter is drawn only when this byte is non-zero together with emitter flag `+2`, fade value `+0x64 > 0` and live particles (or a stripe/child type). TotK copies the same byte into a runtime flag bit.'),
+    'particle_sort_mode_index': ('Confirmed', '`FUN_7100ad99dc`: passed as the `ParticleSortType` argument of `System::GetSortedParticleList`; non-zero selects the sorted draw path (0x7100ad9900).'),
+    'fade_emit_stop': ('Confirmed', '`0x7100ad73d0`: during fade-out `param_6 = (D[0x754] == 0) & param_6`, and `TryEmitParticle` only runs while `param_6` is set, so a non-zero value stops emission while the emitter fades out.'),
+    'draw_path': ('Confirmed', '`FUN_7100ac99d0` (CreateEmitter, 0x7100ac9b08) stores it to `Emitter+0x3b0`; `FUN_7100aca518` draws the emitter only when `(1 << (Emitter+0x3b0 & 0x1f)) & drawPathMask` is non-zero.'),
+    'shape_rot_mode': ('Confirmed', '`0x7100add9d8` (sphere): value 1 uses 0x844 as the polar spread (instead of 0x840) and applies the rotation variant 0x83E; other values sample the polar angle at random.'),
+    'shape_rot_variant': ('Confirmed', '`0x7100add9d8` (sphere, rot mode 1): switch 0..5 selects one of six constant axis vectors that the emitted point and direction are rotated onto.'),
+    'shape_angle_c': ('Confirmed', '`0x7100add9d8` (sphere): polar spread used when 0x83A is 1.'),
+    'shape_fill_ratio': ('Confirmed', '`CalculateEmitCircleFill` (0x7100add704): radial factor `sqrt(u + (1 - u) * (1 - fill)^2)`; 0 gives the outer shell, 1 a solid disc.'),
+    'line_center_bias': ('Confirmed', '`0x7100adf2c0` / `0x7100adf338` (line shapes): offset `-(len + len * bias) / 2` shifts the sampled interval.'),
+    'line_length': ('Confirmed', '`0x7100adf2c0` / `0x7100adf338` (line shapes): segment length times the Z emitter scale.'),
+    'line_division_count': ('Confirmed', '`0x7100adf338` (line equally divided, type 13): number of points on the line; mode 2 steps `Emitter+0x34` through them.'),
+    'line_division_reduction_percent': ('Confirmed', '`0x7100adf338`: with `primitive_dist_mode == 0` the count is reduced by `count * pct * rand * k`.'),
+    'custom_shader_index': ('Confirmed', '`FUN_7100ac99d0` (CreateEmitter): 0 selects the default callback slot, otherwise callback `(id + 8) * 0x58 + 0x8d8` of the system; a missing callback logs "CustomShader Callback not Set" and is skipped.'),
+    'custom_action_index': ('Confirmed', '`FUN_7100ac99d0`: values > 0 select action callback `(id - 1) * 0x58 + 0x8d8` (requires chunk slot `+0x310`).'),
+    'all_directional_speed': ('Confirmed', '`0x7100ad5a74` copies it to `Emitter+0x62c`; `0x7100ad73d0` scales it by the ESET lane `+0x1d8`; every shape emit function multiplies the emitted direction by it (`param_7+0x6c` = `Emitter+0x62c`).'),
+    'fragment_discard_threshold': ('Confirmed', 'GPU fragment shaders (for example 00C5365F_v1.F line 444): `if (alpha <= data[94].z) discard;` where `data[94].z` is dword 0x5E8.'),
+    'template_vertex_bias_x': ('Confirmed', 'GPU vertex shaders (00C5365F_v1.V): `fma(0.5, data[13].x, templateVertex.x)` where `data[13].x` is dword 0xD0.'),
+    'template_vertex_bias_y': ('Confirmed', 'GPU vertex shaders: `fma(0.5, data[13].y, templateVertex.y)` (dword 0xD4).'),
+    'emitter_name': ('Paired', 'NUL-terminated ASCII name (corpus: 586 distinct names in 8,244 emitters). The engine library has no emitter-name search (only `SearchEmitterSetId` for sets), so the field is editor/tool metadata; kept Paired with TotK, which stores it in the same place.'),
+}

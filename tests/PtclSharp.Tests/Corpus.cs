@@ -10,6 +10,7 @@ namespace PtclSharp.Tests;
 internal static class Corpus
 {
     internal const string TotkEnv = "PTCL_TOTK_ROMFS";
+    internal const string BotwEnv = "PTCL_BOTW_ROM";
 
     internal static string? TotkRoot
     {
@@ -19,6 +20,21 @@ internal static class Corpus
             return root is not null && Directory.Exists(Path.Combine(root, "Effect")) ? root : null;
         }
     }
+
+    /// <summary>BotW ROM root (the folder that contains <c>Effect/*.sesetlist</c>), or null.</summary>
+    internal static string? BotwRoot
+    {
+        get
+        {
+            string? root = Environment.GetEnvironmentVariable(BotwEnv);
+            return root is not null && Directory.Exists(Path.Combine(root, "Effect")) ? root : null;
+        }
+    }
+
+    internal static IEnumerable<string> BotwFiles() =>
+        Directory.GetFiles(Path.Combine(BotwRoot!, "Effect"), "*.sesetlist").Order(StringComparer.Ordinal);
+
+    internal static PtclFile LoadBotw(string path) => PtclFile.ReadSesetlist(File.ReadAllBytes(path));
 
     private static readonly Lazy<byte[]> Dictionary = new(() => LoadDictionary(TotkRoot!));
 
@@ -46,6 +62,16 @@ internal static class Corpus
             if (BitConverter.ToUInt32(candidate, 4) == 1) return candidate;
         }
         throw new InvalidDataException("No Zstandard dictionary with ID 1 in ZsDic.pack.zs.");
+    }
+}
+
+/// <summary>A <see cref="FactAttribute"/> that is skipped when the BotW corpus is not available.</summary>
+public sealed class BotwCorpusFactAttribute : FactAttribute
+{
+    public BotwCorpusFactAttribute()
+    {
+        if (Corpus.BotwRoot is null)
+            Skip = $"Set {Corpus.BotwEnv} to a BotW ROM root (the folder with Effect/*.sesetlist) to run the corpus tests.";
     }
 }
 

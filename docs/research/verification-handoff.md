@@ -228,3 +228,14 @@ All 1,592 shipped files now load. There is still no automated test project; the 
 ### TotK status definitions (agreed with the user, 2026-10-04)
 
 `Confirmed` = purpose proven in the executable. `Unused` = no consumer exists in the engine (CPU scan, GPU read set, corpus), so it can be copied or dropped; 62 EMTR ranges (about 440 bytes) are `Unused`. `Unverified` = something consumes it but its purpose is not proven; 24 EMTR ranges remain: the shader-only fields (with a separate **Guess:** note, stored as `FieldDef.Hypothesis`) and the texture-slot record tails passed to the game-side texture resolver. TotK is considered complete at this level; the next phase is BotW (the user must open the BotW program in Ghidra first).
+
+### BotW status (2026-10-04, second pass)
+
+- BotW `EMTR` (0xA88 bytes) is fully mapped in `botw-emtr-offsets-ghidra.md` section 3 (286 rows, no gaps): 223 Confirmed from BotW 1.6.0 code or shader proof, 41 Unused, 18 Unverified (GPU-only, with Guess), 4 Paired. The first-pass BotW table and the BotW offset column of the TotK table were wrong in places (render-state bytes, loop timers, the `0x970..0x998` direction block, "light uniforms" = rotation parameters, pulse flags) and were replaced.
+- BotW chunk payloads, `ESET`, `PRIM`, `G3NT` are in section 4 and `BotwLayouts.cs`; `FCOV` exists in BotW (slot `+0x270`), `FGWD` does not.
+- Remaining Unverified chunk members are listed in `BotwLayouts.cs` (`unverified_*`): stripe members with no traced reader, `ESET` `+0x58/+0x5C`, PRIM array descriptors. Open question for porting: BotW and TotK share some slots with different meanings (`depth_write_enable` vs `depth_sort_ascending`, `emission_position_table_offset_scale` vs `emission_direction_table_offset_scale`); a converter needs an explicit alias table.
+- Tests: `tests/PtclSharp.Tests/BotwCorpusTests.cs` (set `PTCL_BOTW_ROM`).
+
+### BotW status update (third pass)
+
+Stripe, field and primitive chunks were verified against BotW code (`EP01..EP04`, `FRND`, `FRN1`, `FMAG`, `FSPN`, `FCOL`, `FCOV`, `FCLN`, `FCSF`, `FPAD`, `PRIM`, `G3NT`), plus the file header checks in the `Resource` constructor. Only these remain below Confirmed: `EP04 +0x1C`, `PRIM`/`G3NT` are Confirmed, and the `EMTR` GPU-only fields (18 Unverified with Guess, `template_vertex_bias_z`, `emitter_name`). `ESET +0x58/+0x5C` and several stripe words are Unused (no reader in the effect library). BotW `0xB0..0xBC` is a GPU acceleration term (`0.5 * vec * t^2 * scale`), not the TotK CPU fallback.

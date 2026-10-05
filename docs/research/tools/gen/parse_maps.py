@@ -18,13 +18,15 @@ def parse(path,game):
         a=int(offs[0],16)
         if game=='totk':
             size_s,typ,name,ev=c[3],c[4],c[5],c[6]
+        elif len(c)>=6:
+            size_s,typ,name,ev=c[1],c[2],c[3],c[5]
         else:
             size_s,typ,name,ev=c[1],c[2],c[3],c[4]
         name=name.strip('`').strip(); typ=typ.strip('`').strip()
         try: size=_int(size_s)
         except Exception: size=None
         if len(offs)>1 and size is None: size=int(offs[1],16)+1-a
-        rows.append(dict(offset=a,size=size,type=typ,name=name,evidence=ev))
+        rows.append(dict(offset=a,size=size,type=typ,name=name,evidence=ev,status=(c[4].strip() if game=='botw' and len(c)>=6 else None)))
     return rows
 
 def elem(typ):
