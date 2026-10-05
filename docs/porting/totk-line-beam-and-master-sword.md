@@ -263,9 +263,9 @@ function (`0x7101746364`; the only code that uses the key's hash), caches it at 
 can make it grow: it needs code. `tools/TotkModKit/scripts/make_exefs_patch.py` builds the patch (`.pchtxt` + IPS32, assembled with keystone and
 re-disassembled to check):
 
-- The call `bl 0x7101743ea8` (occlusion test) at `0x7101746984` in the update becomes `bl <cave>`. The cave always returns 0, so this also replaces
-  the earlier "never occluded" patch.
-- The cave sits in the zero padding at the end of `.text` (`0x2b19a50`; the segment is padded to `0x2b1a000`), 84 bytes.
+- The call `bl 0x7101743ea8` (occlusion test) at `0x7101746984` in the update becomes `bl <cave>`. For a controller without the marker the cave ends in `b 0x7101743ea8` (a tail call: x0, x1 and lr are untouched), so every vanilla
+  beam runs the original occlusion test unchanged; for ours it returns 0 (never occluded), which replaces the earlier "never occluded" patch.
+- The cave sits in the zero padding at the end of `.text` (`0x2b19a50`; the segment is padded to `0x2b1a000`), 88 bytes.
 - It only acts when the controller's `BeamRadiusScale` (`this+0xa4`) is the marker `0.500123` (our actor's blackboard; vanilla beams use whole
   numbers). Then each frame `this+0x98 = min(300, max(this+0x9c, 0) + 10)`. `this+0x9c` is the last frame's measured length (the start function
   sets it to -100 each shot), so the beam grows from zero on every shot and, after a hit, grows from the hit distance. Do not use `this+0x5c`
