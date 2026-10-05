@@ -2,7 +2,7 @@
 //
 //   PtclConvert <botw.sesetlist> <donor.esetb.byml.zs> <ZsDic.pack.zs> <output.esetb.byml.zs> [--donor-emitter <name>] [--all-notes]
 //               [--botw-rom <ROM root> --totk-romfs <romfs root> [--texture-out <dir>] [--texture-cache <file>]]
-//               [--model-cache <file>]
+//               [--model-cache <file>] [--rename-set <from>=<to> ...]
 //               [--shader-db <shaderdb.json.gz> [--donor-file <TotK effect name>]]
 //
 // The donor is any TotK effect: its shader archive, primitives and the shader selection of one of its emitters (the first one
@@ -12,6 +12,9 @@
 // With --shader-db (built by PtclShaderDb) and --totk-romfs, pass "auto" as the donor: the TotK effect whose shader archive best
 // serves the whole BotW effect is chosen from the database, and every emitter gets the shader selection of its closest donor
 // emitter in that archive (--donor-file picks the TotK effect yourself).
+//
+// --rename-set renames an emitter set (repeatable). The game spawns sets by name from the file it loads, so a converted effect that
+// replaces a TotK file must carry the names that file had (for example Obj_MasterBeam in PlayerBeam).
 //
 // With --botw-rom and --totk-romfs the G3D models the emitters use are carried too: a model TotK also has (same id) is copied from the
 // TotK file that has it, any other is converted from the BotW BFRES (see PtclSharp.Models) and the file's G3PR is rebuilt.
@@ -35,6 +38,7 @@ if (args.Length < 4)
 string botwPath = args[0], donorPath = args[1], dictPath = args[2], outPath = args[3];
 string? donorEmitterName = null;
 bool allNotes = false;
+var renames = new Dictionary<string, string>(StringComparer.Ordinal);
 string? botwRom = null, totkRomfs = null, textureOut = null, textureCache = null, modelCache = null, shaderDb = null, donorFile = null;
 for (int i = 4; i < args.Length; i++)
 {
@@ -45,6 +49,7 @@ for (int i = 4; i < args.Length; i++)
     else if (args[i] == "--texture-out" && i + 1 < args.Length) textureOut = args[++i];
     else if (args[i] == "--texture-cache" && i + 1 < args.Length) textureCache = args[++i];
     else if (args[i] == "--model-cache" && i + 1 < args.Length) modelCache = args[++i];
+    else if (args[i] == "--rename-set" && i + 1 < args.Length && args[++i].Split('=', 2) is { Length: 2 } pair) renames[pair[0]] = pair[1];
     else if (args[i] == "--shader-db" && i + 1 < args.Length) shaderDb = args[++i];
     else if (args[i] == "--donor-file" && i + 1 < args.Length) donorFile = args[++i];
 }
@@ -131,7 +136,15 @@ if (modelPlan is not null && modelIndex is not null)
     primitivePlan?.ApplyTo(converted);
 }
 
-string[] sets = botw.Vfxb.EmitterSets.Select(s => s.Name).ToArray();
+foreach (VfxbTreeNode set in converted.Sets)
+{
+    string current = System.Text.Encoding.UTF8.GetString(set.Data!, 0x10, 0x40).TrimEnd(' ');
+    if (!renames.TryGetValue(current, out string? renamed)) continue;
+    Array.Clear(set.Data!, 0x10, 0x40);
+    System.Text.Encoding.UTF8.GetBytes(renamed, set.Data.AsSpan(0x10, 0x3F));
+    Console.WriteLine($"renamed set {current} -> {renamed}");
+}
+string[] sets = botw.Vfxb.EmitterSets.Select(s => renames.GetValueOrDefault(s.Name, s.Name)).ToArray();
 IReadOnlyList<PtclTextureReference> textures = texturePlan is null ? donor.Textures : texturePlan.TextureReferences.ToList();
 File.WriteAllBytes(outPath, PtclWriter.WriteEsetb(donor, converted.ToBytes(), dictionary, sets, textures));
 
