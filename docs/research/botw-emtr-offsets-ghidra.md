@@ -4,6 +4,8 @@ This document records the exact byte offsets, types, executable behaviors, and G
 
 Offsets are relative to the serialized `EMTR` node's data start (`EMTR.node + dataRelativeOffset`).
 
+**Status (2026-10): 286 rows cover all 0xA88 bytes: Confirmed (BotW code or shader proof) 225, Unused 41, Unverified 18 (GPU-only fields with a Guess, as in the TotK map), Paired 2 (`emitter_name`, `template_vertex_bias_z`).** Section 3 is generated from `tools/gen/botw_rows.py` + `tools/gen/botw_overrides.py`; the chunk layouts (section 4) are `src/PtclSharp/Layout/BotwLayouts.cs`. The "BotW offset" column of the TotK document is a per-segment guess and must not be used to find BotW fields.
+
 ---
 
 ## 1. Resource-Tree & Allocation Architecture
@@ -22,315 +24,343 @@ Offsets are relative to the serialized `EMTR` node's data start (`EMTR.node + da
 
 ---
 
-## 2. Confirmed Attribute Handlers (`ResolveBinaryData`)
+## 2. Attribute chunk handlers (`ResolveBinaryData`, 0x7100adcca8)
 
-`nn::vfx::EmitterResource::ResolveBinaryData` at `0x7100adcca8` traverses child attribute nodes and resolves the following FourCC tags:
+`nn::vfx::EmitterResource::ResolveBinaryData` walks the attribute chain of each EMTR (`attribute_rel`, then each chunk's `sibling_rel`) and stores the payload pointer of each recognised fourcc in a fixed `EmitterResource` slot:
 
-```text
-EAA0 EAA1 EAC0 EAC1 EAPL EASL EAER EADV EAGV EAOV
-EATR EAES EAET EASS EP01 EP02 EP03 EP04
-FRN1 FRND FPAD FCSF FMAG FCOL FCLN FSPN
-CADP CSDP CUDP
-```
+| Slot | Fourcc | Slot | Fourcc | Slot | Fourcc |
+|:---:|:---|:---:|:---|:---:|:---|
+| `+0x248` | `FRND` | `+0x290` | `EAES` | `+0x2d8` | `EAOV` |
+| `+0x250` | `FRN1` | `+0x298` | `EAER` | `+0x2e0` | `EADV` |
+| `+0x258` | `FMAG` | `+0x2a0` | `EAET` | `+0x2e8` | `EASL` |
+| `+0x260` | `FSPN` | `+0x2a8` | `EAC0` | `+0x2f0` | `EASS` |
+| `+0x268` | `FCOL` | `+0x2b0` | `EAC1` | `+0x2f8` | `EAGV` |
+| `+0x270` | `FCOV` | `+0x2b8` | `EATR` | `+0x300` | `CSDP` (size `nodeSize - 0x20` at `+0x308`) |
+| `+0x278` | `FPAD` | `+0x2c0` | `EAPL` | `+0x310` | `CADP` |
+| `+0x280` | `FCLN` | `+0x2c8` | `EAA0` | `+0x318` | `CUDP` |
+| `+0x288` | `FCSF` | `+0x2d0` | `EAA1` | `+0x338` | `EP01`..`EP04` (type 1..4 stored at `+0x330`) |
 
-* `CSDP`: Payload size stored as `nodeSize - 0x20`.
-* `EP01`–`EP04`: Binds emitter plugin modes 1 through 4.
-* `FCOV` and `FGWD`: Exclusive to TotK (`nn::vfx2`), not handled in BotW `ResolveBinaryData`.
+Corrections to the previous version of this section: `FCOV` **is** handled in BotW (slot `+0x270`) and ships in the corpus (196 chunks); `FGWD` is the only TotK chunk with no BotW counterpart.
 
----
+## 3. Byte-by-Byte Field Map (re-verified against the BotW 1.6.0 Switch executable)
 
-## 3. Byte-by-Byte Verified Field Map
+Offsets are relative to the start of the EMTR data block (0xA88 bytes). Status: **Confirmed** = proven in BotW code, **Paired** = same role as a proven TotK field at an aligned position, **Unverified** = consumed but purpose unproven, **Unused** = no consumer found.
+Function addresses are Switch image addresses `0x71xxxxxxxx`. "body+N" means `EmitterResource+0x18` (= data + 0x50) plus N. The previous version of this table contained errors that this pass corrected (loop timers order, render-state bytes, the 0x974 block, "light uniforms", pulse flags).
 
-Every field below is proven by decompiled instructions in the BotW Switch ARM64 1.6.0 binary (`main.analyzed`).
+| BotW Offset | Size (B) | Type | Field | Status | Evidence |
+|:---:|:---:|:---:|:---|:---:|:---|
+| `0x000`–`0x00F` | 16 | `bytes[16]` | `unused_000_00F` | Unused | Zero in all 8,244 corpus emitters; this is the runtime prefix of the data block (TotK has the same unused prefix). The fourcc/size/version words the previous map placed here are the node header, which sits before the data block. Corpus: zero in all 8244 emitters. |
+| `0x010`–`0x04F` | 64 | `char[64]` | `emitter_name` | Paired | NUL-terminated ASCII name (corpus: 586 distinct names in 8,244 emitters). The engine library has no emitter-name search (only `SearchEmitterSetId` for sets), so the field is editor/tool metadata; kept Paired with TotK, which stores it in the same place. |
+| `0x050` | 4 | `uint32` | `runtime_shader_flags_word0` | Confirmed | `EmitterResource::UpdateParams` (0x7100adb8f4) overwrites it with the first word built by 0x7100adc8a8 (shader feature bits); the GPU reads it only through bit tests (`& 0x80000`, `& 0x10000` ...). Zero in every file. |
+| `0x054` | 4 | `uint32` | `runtime_shader_flags_word1` | Confirmed | Second word built by 0x7100adc8a8 and stored by `UpdateParams`; GPU tests bit `& 1`. Zero in every file. |
+| `0x058`–`0x05B` | 4 | `bytes[4]` | `unused_058_05B` | Unused | Zero in every file; no GPU read and no BotW writer or reader found (TotK word2 has no BotW counterpart). Corpus: zero in all 8244 emitters. |
+| `0x05C` | 4 | `uint32` | `runtime_attribute_word` | Confirmed | `UpdateParams` stores the first word of attribute chunk slot `+0x288` here (`D[0x5c] = chunk[0]`). Zero in every file. |
+| `0x060` | 4 | `uint32` | `color0_key_count` | Confirmed | Key count (0..8) of the table at 0x3C0. `UpdateParams` (0x7100adb8f4) pads slots `count..7` by repeating the last key (keys 1..7 only) and shifts their time lane; the animation evaluators (0x7100ae19ac, 0x7100ae1514) skip the key path when the count is below 1/2. |
+| `0x064` | 4 | `uint32` | `alpha0_key_count` | Confirmed | Key count (0..8) of the table at 0x440. `UpdateParams` (0x7100adb8f4) pads slots `count..7` by repeating the last key (keys 1..7 only) and shifts their time lane; the animation evaluators (0x7100ae19ac, 0x7100ae1514) skip the key path when the count is below 1/2. |
+| `0x068` | 4 | `uint32` | `color1_key_count` | Confirmed | Key count (0..8) of the table at 0x4C0. `UpdateParams` (0x7100adb8f4) pads slots `count..7` by repeating the last key (keys 1..7 only) and shifts their time lane; the animation evaluators (0x7100ae19ac, 0x7100ae1514) skip the key path when the count is below 1/2. |
+| `0x06C` | 4 | `uint32` | `alpha1_key_count` | Confirmed | Key count (0..8) of the table at 0x540. `UpdateParams` (0x7100adb8f4) pads slots `count..7` by repeating the last key (keys 1..7 only) and shifts their time lane; the animation evaluators (0x7100ae19ac, 0x7100ae1514) skip the key path when the count is below 1/2. |
+| `0x070` | 4 | `uint32` | `scale_key_count` | Confirmed | Key count (0..8) of the table at 0x600. `UpdateParams` (0x7100adb8f4) pads slots `count..7` by repeating the last key (keys 1..7 only) and shifts their time lane; the animation evaluators (0x7100ae19ac, 0x7100ae1514) skip the key path when the count is below 1/2. |
+| `0x074` | 4 | `uint32` | `track5_key_count` | Confirmed | Key count (0..8) of the table at 0x680. `UpdateParams` (0x7100adb8f4) pads slots `count..7` by repeating the last key (keys 1..7 only) and shifts their time lane; the animation evaluators (0x7100ae19ac, 0x7100ae1514) skip the key path when the count is below 1/2. |
+| `0x078`–`0x07F` | 8 | `bytes[8]` | `unused_078_07F` | Unused | Zero in every file; no GPU read and no BotW reader found (TotK 0x0A8..0x0AF is the same hole after its larger key-count table). Corpus: zero in all 8244 emitters. |
+| `0x080` | 4 | `float` | `runtime_loop_track0_rate` | Confirmed | `UpdateParams` writes `float(D[0x8E4])` when `D[0x8D8] != 0`, otherwise 0.0 (color0 loop period). The GPU reads the reciprocal pattern `0.0 < F` / `1.0 / F`. Zero in every file. |
+| `0x084` | 4 | `float` | `runtime_loop_track1_rate` | Confirmed | `UpdateParams` writes `float(D[0x8E8])` when `D[0x8D9] != 0`, otherwise 0.0 (alpha0 loop period). The GPU reads the reciprocal pattern `0.0 < F` / `1.0 / F`. Zero in every file. |
+| `0x088` | 4 | `float` | `runtime_loop_track2_rate` | Confirmed | `UpdateParams` writes `float(D[0x8EC])` when `D[0x8DA] != 0`, otherwise 0.0 (color1 loop period). The GPU reads the reciprocal pattern `0.0 < F` / `1.0 / F`. Zero in every file. |
+| `0x08C` | 4 | `float` | `runtime_loop_track3_rate` | Confirmed | `UpdateParams` writes `float(D[0x8F0])` when `D[0x8DB] != 0`, otherwise 0.0 (alpha1 loop period). The GPU reads the reciprocal pattern `0.0 < F` / `1.0 / F`. Zero in every file. |
+| `0x090` | 4 | `float` | `runtime_loop_track4_rate` | Confirmed | `UpdateParams` writes `float(D[0x8F4])` when `D[0x8DC] != 0`, otherwise 0.0 (scale loop period). The GPU reads the reciprocal pattern `0.0 < F` / `1.0 / F`. Zero in every file. |
+| `0x094` | 4 | `float` | `runtime_loop_track0_random_enable` | Confirmed | `UpdateParams` writes 1.0 when `D[0x8DD] != 0` (color0 random start phase), otherwise 0.0; the GPU multiplies it (`t = t * F`). Zero in every file. |
+| `0x098` | 4 | `float` | `runtime_loop_track1_random_enable` | Confirmed | `UpdateParams` writes 1.0 when `D[0x8DE] != 0` (alpha0 random start phase), otherwise 0.0; the GPU multiplies it (`t = t * F`). Zero in every file. |
+| `0x09C` | 4 | `float` | `runtime_loop_track2_random_enable` | Confirmed | `UpdateParams` writes 1.0 when `D[0x8DF] != 0` (color1 random start phase), otherwise 0.0; the GPU multiplies it (`t = t * F`). Zero in every file. |
+| `0x0A0` | 4 | `float` | `runtime_loop_track3_random_enable` | Confirmed | `UpdateParams` writes 1.0 when `D[0x8E0] != 0` (alpha1 random start phase), otherwise 0.0; the GPU multiplies it (`t = t * F`). Zero in every file. |
+| `0x0A4` | 4 | `float` | `runtime_loop_track4_random_enable` | Confirmed | `UpdateParams` writes 1.0 when `D[0x8E1] != 0` (scale random start phase), otherwise 0.0; the GPU multiplies it (`t = t * F`). Zero in every file. |
+| `0x0A8`–`0x0AF` | 8 | `bytes[8]` | `unused_0A8_0AF` | Unused | Zero in every file; no GPU read and no BotW reader found. Corpus: zero in all 8244 emitters. |
+| `0x0B0`–`0x0BB` | 12 | `float[3]` | `gpu_accel_dir_xyz` | Confirmed | Vertex shaders (for example 0118E544_v1.V line 1803): `position += 0.5 * (t * t * data[11].w) * data[11].xyz` with `t = age + offset`, i.e. a constant-acceleration displacement along this vector. Default (0, -1, 0) in 97% of emitters. TotK holds the same bytes at 0xE0 and reads them on the CPU as the stationary-delta fallback; the BotW CPU code does not read them. |
+| `0x0BC` | 4 | `float` | `gpu_accel_scale` | Confirmed | Vertex shaders: `t * t * data[11].w` multiplies the acceleration vector (see `gpu_accel_dir_xyz`). 0.0109 is the most common value (about 9.8 / 30^2, gravity per frame squared). |
+| `0x0C0` | 4 | `float` | `velocity_attenuation_per_frame` | Confirmed | `CalculateParticleBehavior` (0x7100ae0e34): `if (D[0xc0] >= 1.0) velocity unchanged, else velocity *= powf(D[0xc0], frame_time)` (read as `body+0x70`). GPU reads `log2(F)` and `F == 1.0` for the compute path. |
+| `0x0C4`–`0x0CF` | 12 | `bytes[12]` | `unused_0C4_0CF` | Unused | Zero in every file; no GPU read and no BotW reader found. Corpus: zero in all 8244 emitters. |
+| `0x0D0` | 4 | `float` | `template_vertex_bias_x` | Confirmed | GPU vertex shaders (00C5365F_v1.V): `fma(0.5, data[13].x, templateVertex.x)` where `data[13].x` is dword 0xD0. |
+| `0x0D4` | 4 | `float` | `template_vertex_bias_y` | Confirmed | GPU vertex shaders: `fma(0.5, data[13].y, templateVertex.y)` (dword 0xD4). |
+| `0x0D8` | 4 | `float` | `template_vertex_bias_z` | Paired | GPU vertex stage `fma(0.5, F, t)` on the template vertex position (0xD0/0xD4 in 6,852 programs, 0xD8 through varied arithmetic); same position, read pattern and distribution as TotK 0x108. |
+| `0x0DC`–`0x0DF` | 4 | `bytes[4]` | `unused_0DC_0DF` | Unused | Zero in every file; no GPU read (TotK 0x10C, the analogous float, is nonzero there). Corpus: zero in all 8244 emitters. |
+| `0x0E0` | 4 | `float` | `waveform0_amplitude` | Confirmed | amplitude of waveform 0 (multiplies the alpha/scale-X waveform). Read as `body+0x90` by the pulse evaluators (0x7100ae19ac for alpha, 0x7100ae1514 for scale): phase = `(time_offset + t) / period + random_phase_scale * particleRandom`, shape from the high nibble of 0x9EF, amplitude `1 - amp * wave`. GPU reads the same dwords (`0.0 - F`, `1.0 / F`, `t * F`, `t + F`). |
+| `0x0E4` | 4 | `float` | `waveform1_amplitude` | Confirmed | amplitude of waveform 1 (scale Y). Read as `body+0x94` by the pulse evaluators (0x7100ae19ac for alpha, 0x7100ae1514 for scale): phase = `(time_offset + t) / period + random_phase_scale * particleRandom`, shape from the high nibble of 0x9EF, amplitude `1 - amp * wave`. GPU reads the same dwords (`0.0 - F`, `1.0 / F`, `t * F`, `t + F`). |
+| `0x0E8` | 4 | `float` | `waveform0_period` | Confirmed | period divisor of waveform 0. Read as `body+0x98` by the pulse evaluators (0x7100ae19ac for alpha, 0x7100ae1514 for scale): phase = `(time_offset + t) / period + random_phase_scale * particleRandom`, shape from the high nibble of 0x9EF, amplitude `1 - amp * wave`. GPU reads the same dwords (`0.0 - F`, `1.0 / F`, `t * F`, `t + F`). |
+| `0x0EC` | 4 | `float` | `waveform1_period` | Confirmed | period divisor of waveform 1. Read as `body+0x9C` by the pulse evaluators (0x7100ae19ac for alpha, 0x7100ae1514 for scale): phase = `(time_offset + t) / period + random_phase_scale * particleRandom`, shape from the high nibble of 0x9EF, amplitude `1 - amp * wave`. GPU reads the same dwords (`0.0 - F`, `1.0 / F`, `t * F`, `t + F`). |
+| `0x0F0` | 4 | `float` | `waveform0_random_phase_scale` | Confirmed | multiplier of the per-particle random phase of waveform 0. Read as `body+0xA0` by the pulse evaluators (0x7100ae19ac for alpha, 0x7100ae1514 for scale): phase = `(time_offset + t) / period + random_phase_scale * particleRandom`, shape from the high nibble of 0x9EF, amplitude `1 - amp * wave`. GPU reads the same dwords (`0.0 - F`, `1.0 / F`, `t * F`, `t + F`). |
+| `0x0F4` | 4 | `float` | `waveform1_random_phase_scale` | Confirmed | multiplier of the per-particle random phase of waveform 1. Read as `body+0xA4` by the pulse evaluators (0x7100ae19ac for alpha, 0x7100ae1514 for scale): phase = `(time_offset + t) / period + random_phase_scale * particleRandom`, shape from the high nibble of 0x9EF, amplitude `1 - amp * wave`. GPU reads the same dwords (`0.0 - F`, `1.0 / F`, `t * F`, `t + F`). |
+| `0x0F8` | 4 | `float` | `waveform0_time_offset` | Confirmed | time offset of waveform 0. Read as `body+0xA8` by the pulse evaluators (0x7100ae19ac for alpha, 0x7100ae1514 for scale): phase = `(time_offset + t) / period + random_phase_scale * particleRandom`, shape from the high nibble of 0x9EF, amplitude `1 - amp * wave`. GPU reads the same dwords (`0.0 - F`, `1.0 / F`, `t * F`, `t + F`). |
+| `0x0FC` | 4 | `float` | `waveform1_time_offset` | Confirmed | time offset of waveform 1. Read as `body+0xAC` by the pulse evaluators (0x7100ae19ac for alpha, 0x7100ae1514 for scale): phase = `(time_offset + t) / period + random_phase_scale * particleRandom`, shape from the high nibble of 0x9EF, amplitude `1 - amp * wave`. GPU reads the same dwords (`0.0 - F`, `1.0 / F`, `t * F`, `t + F`). |
+| `0x100` | 4 | `float` | `unverified_100` | Unverified | Fragment stage only (535 programs): `t = t * F`. Role not established. **Guess:** Likely an intensity/brightness-style multiplier on a fragment quantity (TotK analogue 0x130); low confidence. |
+| `0x104` | 4 | `float` | `unverified_104` | Unverified | Fragment stage only (534 programs): `t = t * F`. Role not established. **Guess:** Likely an intensity/brightness-style multiplier on a fragment quantity (TotK analogue 0x134); low confidence. |
+| `0x108`–`0x10F` | 8 | `bytes[8]` | `unused_108_10F` | Unused | Zero in every file; no GPU read and no BotW reader found. Corpus: zero in all 8244 emitters. |
+| `0x110`–`0x19F` | 144 | `bytes[0x90]` | `tex0_flipbook_runtime_block` | Confirmed | Runtime pattern table of texture slot 0. `0x7100adc8a8` (mode 4 only, `D[0xA58] == 4`) writes `D[0x110] = D[0x118]` (frame count float) and fills the int table at `D[0x120 + 4*i] = i` for `i < count`; the GPU truncates the first two dwords (`trunc(F)`). Mostly zero in files; slot 2 is almost always empty. |
+| `0x1A0`–`0x22F` | 144 | `bytes[0x90]` | `tex1_flipbook_runtime_block` | Confirmed | Runtime pattern table of texture slot 1. `0x7100adc8a8` (mode 4 only, `D[0xA68] == 4`) writes `D[0x1A0] = D[0x1A8]` (frame count float) and fills the int table at `D[0x1B0 + 4*i] = i` for `i < count`; the GPU truncates the first two dwords (`trunc(F)`). Mostly zero in files; slot 2 is almost always empty. |
+| `0x230`–`0x2BF` | 144 | `bytes[0x90]` | `tex2_flipbook_runtime_block` | Confirmed | Runtime pattern table of texture slot 2. `0x7100adc8a8` (mode 4 only, `D[0xA78] == 4`) writes `D[0x230] = D[0x238]` (frame count float) and fills the int table at `D[0x240 + 4*i] = i` for `i < count`; the GPU truncates the first two dwords (`trunc(F)`). Mostly zero in files; slot 2 is almost always empty. |
+| `0x2C0`–`0x30F` | 80 | `bytes[0x50]` | `tex0_uniform_block` | Confirmed | UV transform block of texture slot 0, copied verbatim to the GPU. `UpdateParams` proves its structure: when `D[0xA59]` (scroll) is 0 it zeroes +0x00..+0x14; when `D[0xA5A]` (rotate) is 0 it zeroes +0x30..+0x38; when `D[0xA5B]` (scale) is 0 it writes 1.0 to +0x20/+0x24 and 0 to +0x18/+0x1C/+0x28/+0x2C; it writes the two floats selected by `D[0xA5C]` (domain mode, value < 4, table at 0x7101e787a0/b0) to +0x40/+0x44. |
+| `0x310`–`0x35F` | 80 | `bytes[0x50]` | `tex1_uniform_block` | Confirmed | UV transform block of texture slot 1, copied verbatim to the GPU. `UpdateParams` proves its structure: when `D[0xA69]` (scroll) is 0 it zeroes +0x00..+0x14; when `D[0xA6A]` (rotate) is 0 it zeroes +0x30..+0x38; when `D[0xA6B]` (scale) is 0 it writes 1.0 to +0x20/+0x24 and 0 to +0x18/+0x1C/+0x28/+0x2C; it writes the two floats selected by `D[0xA6C]` (domain mode, value < 4, table at 0x7101e787a0/b0) to +0x40/+0x44. |
+| `0x360`–`0x3AF` | 80 | `bytes[0x50]` | `tex2_uniform_block` | Confirmed | UV transform block of texture slot 2, copied verbatim to the GPU. `UpdateParams` proves its structure: when `D[0xA79]` (scroll) is 0 it zeroes +0x00..+0x14; when `D[0xA7A]` (rotate) is 0 it zeroes +0x30..+0x38; when `D[0xA7B]` (scale) is 0 it writes 1.0 to +0x20/+0x24 and 0 to +0x18/+0x1C/+0x28/+0x2C; it writes the two floats selected by `D[0xA7C]` (domain mode, value < 4, table at 0x7101e787a0/b0) to +0x40/+0x44. |
+| `0x3B0` | 4 | `float` | `particle_color_rgb_scale` | Confirmed | Read as `body+0x360` by the color evaluator (0x7100ae19ac): `rgb = key_rgb * this * emitterColor * ...`; applies to the three color channels only (alpha uses a separate factor). |
+| `0x3B4`–`0x3BF` | 12 | `bytes[12]` | `unused_3B4_3BF` | Unused | Zero in every file; no GPU read and no BotW reader found. Corpus: zero in all 8244 emitters. |
+| `0x3C0`–`0x43F` | 128 | `float[8][4]` | `kf_color0` | Confirmed | Eight keys (value xyz or x, time w). `UpdateParams` copies the constant (0x9A8) into key 0 when mode `D[0x9A4] == 0` and pads unused keys after `color0_key_count`; `Calculate8KeyAnim` evaluates them (0x7100ae19ac) when the mode is 2; mode 3 of color picks a discrete key by `floor(life * count)` from the same table (0x3C0 + 0x10*idx). |
+| `0x440`–`0x4BF` | 128 | `float[8][4]` | `kf_alpha0` | Confirmed | Eight keys (value xyz or x, time w). `UpdateParams` copies the constant (0x9B4) into key 0 when mode `D[0x9A6] == 0` and pads unused keys after `alpha0_key_count`; `Calculate8KeyAnim` evaluates them (0x7100ae19ac) when the mode is 2; mode 3 of color picks a discrete key by `floor(life * count)` from the same table (0x440 + 0x10*idx). |
+| `0x4C0`–`0x53F` | 128 | `float[8][4]` | `kf_color1` | Confirmed | Eight keys (value xyz or x, time w). `UpdateParams` copies the constant (0x9B8) into key 0 when mode `D[0x9A5] == 0` and pads unused keys after `color1_key_count`; `Calculate8KeyAnim` evaluates them (0x7100ae19ac) when the mode is 2; mode 3 of color picks a discrete key by `floor(life * count)` from the same table (0x4C0 + 0x10*idx). |
+| `0x540`–`0x5BF` | 128 | `float[8][4]` | `kf_alpha1` | Confirmed | Eight keys (value xyz or x, time w). `UpdateParams` copies the constant (0x9C4) into key 0 when mode `D[0x9A7] == 0` and pads unused keys after `alpha1_key_count`; `Calculate8KeyAnim` evaluates them (0x7100ae19ac) when the mode is 2; mode 3 of color picks a discrete key by `floor(life * count)` from the same table (0x540 + 0x10*idx). |
+| `0x5C0` | 4 | `float` | `unverified_5C0` | Unverified | Not read by any shader (GPU read set starts at 0x5C4) and no BotW reader found; nonzero (10.0) in 8 files. TotK analogue 0x890 is read there. **Guess:** Possibly a scale paired with another static-block value for a vertex offset; very low confidence. |
+| `0x5C4` | 4 | `float` | `unverified_5C4` | Unverified | GPU-read dword; same position in the read set, shader pattern and value distribution as TotK 0x894. Role not established (see the TotK row for the shader patterns). **Guess:** Likely the radius/scale of a fixed multi-tap sample or offset pattern (the constants 0.24, 0.48 and 0.1 are tap offsets), such as a distortion or blur kernel. |
+| `0x5C8` | 4 | `float` | `unverified_5C8` | Unverified | GPU-read dword; same position in the read set, shader pattern and value distribution as TotK 0x898. Role not established (see the TotK row for the shader patterns). **Guess:** Likely the start of a depth or distance fade ramp (soft-particle style); the paired value at 0x89C is its end. |
+| `0x5CC` | 4 | `float` | `unverified_5CC` | Unverified | GPU-read dword; same position in the read set, shader pattern and value distribution as TotK 0x89C. Role not established (see the TotK row for the shader patterns). **Guess:** Likely the end of a depth or distance fade ramp (soft-particle style); the paired value at 0x898 is its start. |
+| `0x5D0` | 4 | `float` | `unverified_5D0` | Unverified | GPU-read dword; same position in the read set, shader pattern and value distribution as TotK 0x8A0. Role not established (see the TotK row for the shader patterns). **Guess:** Likely the near bound of a vertex-computed distance (camera distance) fade; paired with 0x8A4. |
+| `0x5D4` | 4 | `float` | `unverified_5D4` | Unverified | GPU-read dword; same position in the read set, shader pattern and value distribution as TotK 0x8A4. Role not established (see the TotK row for the shader patterns). **Guess:** Likely the far bound of a vertex-computed distance fade; paired with 0x8A0. |
+| `0x5D8` | 4 | `float` | `unverified_5D8` | Unverified | GPU-read dword; same position in the read set, shader pattern and value distribution as TotK 0x8A8. Role not established (see the TotK row for the shader patterns). **Guess:** Likely the near bound of a second vertex-computed fade or scale ramp; paired with 0x8AC. |
+| `0x5DC` | 4 | `float` | `unverified_5DC` | Unverified | GPU-read dword; same position in the read set, shader pattern and value distribution as TotK 0x8AC. Role not established (see the TotK row for the shader patterns). **Guess:** Likely the far bound of a second vertex-computed fade or scale ramp; paired with 0x8A8. |
+| `0x5E0` | 4 | `float` | `unverified_5E0` | Unverified | GPU-read dword; same position in the read set, shader pattern and value distribution as TotK 0x8B0. Role not established (see the TotK row for the shader patterns). **Guess:** Likely an alpha threshold used in a greater-or-equal test (a second alpha clip or an upper cut-off). |
+| `0x5E4`–`0x5E7` | 4 | `bytes[4]` | `unused_5E4_5E7` | Unused | Zero in every file; no GPU read. Corpus: zero in all 8244 emitters. |
+| `0x5E8` | 4 | `float` | `fragment_discard_threshold` | Confirmed | GPU fragment shaders (for example 00C5365F_v1.F line 444): `if (alpha <= data[94].z) discard;` where `data[94].z` is dword 0x5E8. |
+| `0x5EC`–`0x5EF` | 4 | `bytes[4]` | `unused_5EC_5EF` | Unused | Zero in every file; no GPU read. Corpus: zero in all 8244 emitters. |
+| `0x5F0` | 4 | `float` | `unverified_5F0` | Unverified | GPU-read dword (vertex stage in TotK); same position as TotK 0x8C0. Role not established. **Guess:** Likely a strength/scale of a vertex displacement (for example distortion, wind or normal offset); low confidence. |
+| `0x5F4` | 4 | `float` | `unverified_5F4` | Unverified | GPU-read dword (fragment stage in TotK); same position as TotK 0x8C4. Role not established. **Guess:** Likely the reciprocal fade distance of a soft-particle depth fade (the programs that use it sample `sysDepthBufferTexture`). |
+| `0x5F8`–`0x5FF` | 8 | `bytes[8]` | `unused_5F8_5FF` | Unused | Zero in every file; no GPU read. Corpus: zero in all 8244 emitters. |
+| `0x600`–`0x67F` | 128 | `float[8][4]` | `kf_scale` | Confirmed | Scale keys xyz + time. `FUN_7100ae1514` evaluates them as `body+0x5b0` (`Calculate8KeyAnim`) when `scale_key_count >= 2`; `UpdateParams` pads unused keys. |
+| `0x680`–`0x6FF` | 128 | `float[8][4]` | `kf_track5` | Confirmed | Sixth key table (xyz + time), padded by `UpdateParams` with `track5_key_count` (0x74); GPU-read at `0x680..0x6FC`. No BotW CPU reader was found for it. |
+| `0x700`–`0x70B` | 12 | `float[3]` | `rotation_initial_xyz` | Confirmed | `UpdateParams` ends by copying D[0x700..0x70B] to `EmitterResource+0x320`; `0x7100ada3cc` stores that triple into the per-particle rotation array (`param_6[5]`) at emission, so it is the initial rotation of each particle. Only lanes enabled by 0x8B0..0x8B2 are kept (`UpdateParams` zeroes lane i of the four rotation vec4s when the lane flag is 0). Not read by any shader. |
+| `0x70C`–`0x70F` | 4 | `bytes[4]` | `unused_70C_70F` | Unused | Zero in every file; padding of the vec4. Corpus: zero in all 8244 emitters. |
+| `0x710`–`0x71B` | 12 | `float[3]` | `rotation_initial_random_xyz` | Confirmed | `CalculateRotationMatrix` (0x7100ae2264): `initial + body[0x6c0..0x6c8] * random` per axis. |
+| `0x71C`–`0x71F` | 4 | `bytes[4]` | `unused_71C_71F` | Unused | Zero in every file; padding of the vec4. Corpus: zero in all 8244 emitters. |
+| `0x720`–`0x72B` | 12 | `float[3]` | `rotation_add_xyz` | Confirmed | `CalculateRotationMatrix`: per-frame rotation added, `body[0x6d0..0x6d8]` plus the random term, scaled by time (with attenuation). |
+| `0x72C` | 4 | `float` | `rotation_add_attenuation` | Confirmed | `CalculateRotationMatrix`: `powf(body[0x6dc], t)` and `(1 - a) / (1 - base)` give the attenuated accumulated rotation. |
+| `0x730`–`0x73B` | 12 | `float[3]` | `rotation_add_random_xyz` | Confirmed | `CalculateRotationMatrix`: `body[0x6e0..0x6e8] * (r1 + r2) * 0.5` added to the per-frame rotation. |
+| `0x73C`–`0x73F` | 4 | `bytes[4]` | `unused_73C_73F` | Unused | Zero in every file; padding of the vec4. Corpus: zero in all 8244 emitters. |
+| `0x740` | 4 | `float` | `unverified_740` | Unverified | GPU vertex read (`740`). Same position relative to the rotation block as TotK 0xC50. Role not established. **Guess:** Likely the maximum length used to clamp and normalize a velocity/ribbon stretch in the vertex stage (TotK analogue). |
+| `0x744` | 4 | `float` | `unverified_744` | Unverified | GPU vertex read (`744`). Same position relative to the rotation block as TotK 0xC54. Role not established. **Guess:** Likely the minimum length (lower clamp) used when normalizing a velocity/ribbon stretch in the vertex stage (TotK analogue). |
+| `0x748`–`0x74F` | 8 | `bytes[8]` | `unused_748_74F` | Unused | Zero in every file; beyond the GPU copy (0x750 bytes) and no BotW reader found. The previous map placed `sim_flags` and sort/velocity bytes here; the BotW code reads them at 0x750..0x753. Corpus: zero in all 8244 emitters. |
+| `0x750` | 1 | `uint8` | `sim_flags` | Confirmed | Emitter draw gate (`FUN_7100aca518`, 0x7100aca538): the emitter is drawn only when this byte is non-zero together with emitter flag `+2`, fade value `+0x64 > 0` and live particles (or a stripe/child type). TotK copies the same byte into a runtime flag bit. |
+| `0x751` | 1 | `uint8` | `particle_sort_mode_index` | Confirmed | `FUN_7100ad99dc`: passed as the `ParticleSortType` argument of `System::GetSortedParticleList`; non-zero selects the sorted draw path (0x7100ad9900). |
+| `0x752` | 1 | `uint8` | `emitter_calc_type` | Confirmed | `0x7100ad73d0`: `0` runs the CPU particle calculation (`0x7100ad7ea0`), non-zero copies the particle count (GPU path), `2` with the caller flag also runs the CPU path. `0x7100ad5a74` allocates CPU/GPU particle buffers by this value (2 aligns to 32 and drops the CPU arrays). |
+| `0x753` | 1 | `uint8` | `velocity_coord` | Confirmed | Particle coordinate mode 0..2: `0x7100ad7ea0` / `0x7100ada3cc` / `0x7100ae0e34` use the emitter matrix for 0, per-particle basis arrays for 1 (gravity normalizes the basis) and 2 (matrix rows plus translation); `0x7100ad5a74` allocates the extra basis arrays when non-zero; `0x7100adc8a8` maps it through a three-entry table into shader flag word 1. |
+| `0x754` | 1 | `uint8` | `fade_emit_stop` | Confirmed | `0x7100ad73d0`: during fade-out `param_6 = (D[0x754] == 0) & param_6`, and `TryEmitParticle` only runs while `param_6` is set, so a non-zero value stops emission while the emitter fades out. |
+| `0x755` | 1 | `uint8` | `fade_out_curve` | Confirmed | Either 0x755 or 0x756 non-zero enables fade-out in `0x7100ad73d0`; `0x7100ad8854` multiplies the alpha factor (`Emitter+0x64`) when 0x755 is set. |
+| `0x756` | 1 | `uint8` | `fade_out_scale` | Confirmed | See 0x755; `0x7100ad8854` multiplies the scale factor (`Emitter+0x64`) when 0x756 is set. |
+| `0x757` | 1 | `uint8` | `seed_source` | Confirmed | `Emitter::Initialize` (0x7100ad583c): 0 = draw from the global generator, 1 = ESET `+0x34`, 2 = `D[0x760] * -0x2023e3cb`. |
+| `0x758` | 1 | `uint8` | `update_matrix_by_emit` | Confirmed | `Emitter::UpdateByEmit` (0x7100ad69b0) calls `CreateResMatrix` (0x7100ad6560) after each emit when non-zero. |
+| `0x759`–`0x75A` | 2 | `bytes[2]` | `unused_759_75A` | Unused | Nonzero in the corpus but no reader found (TotK 0xCA6..0xCA7 is also unused). Corpus: nonzero in 360 of 8244 emitters. |
+| `0x75B` | 1 | `uint8` | `fade_in_curve` | Confirmed | `Initialize` sets the initial fade value to 0 when this or 0x75C is set; `0x7100ad73d0` ramps `Emitter+0x68` by `dt / D[0x76c]`; `0x7100ad8854` applies it to the alpha factor. |
+| `0x75C` | 1 | `uint8` | `fade_in_scale` | Confirmed | See 0x75B; `0x7100ad8854` applies the ramp to the scale factor when set. |
+| `0x75D`–`0x75F` | 3 | `bytes[3]` | `unused_75D_75F` | Unused | Zero in every file; no reader found. Corpus: zero in all 8244 emitters. |
+| `0x760` | 4 | `uint32` | `fixed_seed` | Confirmed | `Initialize`: seed = `D[0x760] * -0x2023e3cb` when `seed_source == 2`. |
+| `0x764` | 4 | `uint32` | `draw_path` | Confirmed | `FUN_7100ac99d0` (CreateEmitter, 0x7100ac9b08) stores it to `Emitter+0x3b0`; `FUN_7100aca518` draws the emitter only when `(1 << (Emitter+0x3b0 & 0x1f)) & drawPathMask` is non-zero. |
+| `0x768` | 4 | `int32` | `fade_out_time` | Confirmed | `0x7100ad73d0`: `Emitter+0x64 -= dt / (float)D[0x768]`; a value below 1 ends the emitter immediately. |
+| `0x76C` | 4 | `int32` | `fade_in_time` | Confirmed | `0x7100ad73d0`: `Emitter+0x68 += dt / (float)D[0x76c]`; a value below 1 jumps to 1.0. |
+| `0x770`–`0x77B` | 12 | `float[3]` | `emitter_trans_xyz` | Confirmed | `CreateResMatrix` (0x7100ad6560): translation base. |
+| `0x77C`–`0x787` | 12 | `float[3]` | `emitter_trans_rnd` | Confirmed | `CreateResMatrix`: translation random range (`rand * 2 - 1` times this). |
+| `0x788`–`0x793` | 12 | `float[3]` | `emitter_rot_xyz` | Confirmed | `CreateResMatrix`: Euler rotation base, wrapped into [-pi, pi] by the shared range-reduction constants and evaluated with the sine/cosine polynomials. |
+| `0x794`–`0x79F` | 12 | `float[3]` | `emitter_rot_rnd` | Confirmed | `CreateResMatrix`: rotation random range. |
+| `0x7A0`–`0x7AB` | 12 | `float[3]` | `emitter_scale_xyz` | Confirmed | `CreateResMatrix`: scale applied to the rotation basis. |
+| `0x7AC`–`0x7B7` | 12 | `float[3]` | `emitter_color0_rgb` | Confirmed | `0x7100ad5a74` copies it to `Emitter+0x5e4`; `0x7100ad8854` multiplies the animated emitter color0 by it when filling the dynamic uniform block. |
+| `0x7B8` | 4 | `float` | `emitter_color0_alpha` | Confirmed | Copied to `Emitter+0x614` (0x7100ad5a74) and multiplied into the dynamic block alpha (0x7100ad8854). |
+| `0x7BC`–`0x7C7` | 12 | `float[3]` | `emitter_color1_rgb` | Confirmed | Copied to `Emitter+0x5f0` and multiplied into the dynamic block color1 (0x7100ad8854). |
+| `0x7C8` | 4 | `float` | `emitter_color1_alpha` | Confirmed | Copied to `Emitter+0x620` and multiplied into the dynamic block alpha1 (0x7100ad8854). |
+| `0x7CC`–`0x7D7` | 12 | `bytes[12]` | `unused_7CC_7D7` | Unused | No reader found. The bytes hold floats in the corpus (0x7D0 is -1.0 in 94% of emitters); TotK 0xD1C..0xD27 is the same unused hole. Corpus: nonzero in 8244 of 8244 emitters. |
+| `0x7D8` | 1 | `uint8` | `inherit_parent_velocity` | Confirmed | `0x7100ad9bc0` (child particle setup): adds the parent particle velocity times `D[0x7e8]` to the child particle velocity. |
+| `0x7D9` | 1 | `uint8` | `inherit_parent_scale` | Confirmed | `0x7100ad9bc0` (child particle setup): evaluates the parent scale (`FUN_7100ae1514`) times `D[0x7ec]` into the child scale. |
+| `0x7DA` | 1 | `uint8` | `inherit_parent_rotation` | Confirmed | `0x7100ad9bc0` (child particle setup): writes the parent rotation matrix result (`CalculateRotationMatrix`). |
+| `0x7DB` | 1 | `bytes[1]` | `unused_7DB` | Unused | Zero in every file; no reader found (TotK 0xD33). Corpus: zero in all 8244 emitters. |
+| `0x7DC` | 1 | `uint8` | `inherit_parent_color0_rgb` | Confirmed | `0x7100ad9bc0`: runs the parent color0 evaluator (`0x7100ae19ac`) into the child color0 rgb. |
+| `0x7DD` | 1 | `uint8` | `inherit_parent_color1_rgb` | Confirmed | `0x7100ad9bc0`: runs the parent color1 evaluator (`0x7100ae1e08`) into the child color1 rgb. |
+| `0x7DE` | 1 | `uint8` | `inherit_parent_alpha0` | Confirmed | `0x7100ad9bc0`: copies the parent alpha0 into the child; `0x7100ad8854` additionally multiplies it each frame when 0x7E2 is set. |
+| `0x7DF` | 1 | `uint8` | `inherit_parent_alpha1` | Confirmed | `0x7100ad9bc0`: copies the parent alpha1 into the child; `0x7100ad8854` multiplies it each frame when 0x7E3 is set. |
+| `0x7E0` | 1 | `bytes[1]` | `unused_7E0` | Unused | Nonzero in the corpus but no reader found (TotK 0xD38 is also unused). Corpus: nonzero in 116 of 8244 emitters. |
+| `0x7E1` | 1 | `uint8` | `child_pre_draw` | Confirmed | `EmitterSet::Draw` reads it at 0x7100aca6e8 and 0x7100aca798 to draw the child before or after the parent. |
+| `0x7E2` | 1 | `uint8` | `inherit_parent_alpha0_each_frame` | Confirmed | `0x7100ad8854`: with 0x7DE also set, multiplies the emitter alpha factor by the parent alpha every frame. |
+| `0x7E3` | 1 | `uint8` | `inherit_parent_alpha1_each_frame` | Confirmed | `0x7100ad8854`: with 0x7DF also set, multiplies the alpha1 factor by the parent alpha every frame. |
+| `0x7E4` | 1 | `uint8` | `inherit_enable_emitter_particle` | Confirmed | Marks an emitter that follows a parent particle: `0x7100ad73d0` and `0x7100ad7ea0` use the parent-particle timing branch (`D[0x7f8] / 100 * parentLife`) and `0x7100ad9bc0` takes the inheritance branch only when it is non-zero. |
+| `0x7E5`–`0x7E7` | 3 | `bytes[3]` | `unused_7E5_7E7` | Unused | Zero in every file; no reader found. Corpus: zero in all 8244 emitters. |
+| `0x7E8` | 4 | `float` | `inherit_parent_velocity_rate` | Confirmed | `0x7100ad9bc0`: factor on the inherited parent velocity. |
+| `0x7EC` | 4 | `float` | `inherit_parent_scale_rate` | Confirmed | `0x7100ad9bc0`: factor on the inherited parent scale. |
+| `0x7F0` | 1 | `uint8` | `emit_loop_mode` | Confirmed | 0 = the emitter never ends, non-zero = it ends at `start + duration` (+ lifespan): `0x7100ad73d0` (end test), `0x7100ae44ec` (ESET aggregation sets the "has endless emitter" flag when 0). |
+| `0x7F1` | 1 | `uint8` | `gravity_coord` | Confirmed | `0x7100ae0e34`: 0 applies gravity in world space, non-zero transforms it by the emitter/particle basis; `0x7100adc8a8` sets shader flag bit 8. |
+| `0x7F2` | 1 | `uint8` | `emit_dist_enable` | Confirmed | `0x7100ad7084` takes the distance-based emission branch when non-zero; `0x7100ad6358` then uses `D[0x834]` as the particle capacity. |
+| `0x7F3` | 1 | `uint8` | `designated_direction_transform_enable` | Confirmed | `0x7100ada3cc`: when non-zero the designated direction at 0x974 is transformed by the emitter basis (`0x7100ad529c`) before it contributes to velocity. |
+| `0x7F4` | 4 | `uint32` | `emit_start_delay` | Confirmed | `0x7100ad73d0`: emission window start frame. |
+| `0x7F8` | 4 | `uint32` | `child_emit_timing` | Confirmed | `0x7100ad73d0`: for child emitters `start = parentLife * D[0x7f8] / 100`. |
+| `0x7FC` | 4 | `uint32` | `emit_duration` | Confirmed | `0x7100ad73d0`: window end = start + duration. |
+| `0x800` | 4 | `float` | `emit_rate` | Confirmed | `TryEmitParticle` (0x7100ad7084): particles per frame; `UpdateParams` replaces it for shape types 2/13 (1.0), 5 (table by 0x83C), 6 (count 0x83D) and 15 (callback) while 0x874 == 0. |
+| `0x804` | 4 | `int32` | `emit_rate_random_percent` | Confirmed | `TryEmitParticle`: `rate * (percent / 100) * random` subtracted from the rate (i32 here, byte in TotK). |
+| `0x808` | 4 | `int32` | `emit_interval` | Confirmed | `UpdateByEmit` (0x7100ad69b0): interval = `D[0x808] + 1 + (random * D[0x80c] >> 32)`. |
+| `0x80C` | 4 | `int32` | `emit_interval_random` | Confirmed | `UpdateByEmit`: random extension of the interval (see 0x808). |
+| `0x810` | 4 | `float` | `emission_position_table_offset_scale` | Confirmed | `0x7100ada3cc`: when non-zero, adds `table[counter++ & 0x1ff].xy * value` to the emitted particle position X/Y (counter at `Emitter+0xa2`). TotK 0xD68 applies the same table step to the direction instead. |
+| `0x814` | 4 | `float` | `gravity_scale` | Confirmed | `0x7100ad5a74` copies it to `Emitter+0x65c`; `0x7100ae0e34` multiplies the gravity vector by it (skipped when <= 0). |
+| `0x818`–`0x823` | 12 | `float[3]` | `gravity_xyz` | Confirmed | `0x7100ae0e34`: acceleration `scale * g * dt`. |
+| `0x824` | 4 | `float` | `emit_dist_unit` | Confirmed | `0x7100ad7084`: spacing of distance-based emission, `n = (int)(travel / unit)`. |
+| `0x828` | 4 | `float` | `emit_dist_min` | Confirmed | `0x7100ad7084`: lower clamp of the travel length. |
+| `0x82C` | 4 | `float` | `emit_dist_max` | Confirmed | `0x7100ad7084`: upper clamp of the travel length. |
+| `0x830` | 4 | `float` | `emit_dist_margin` | Confirmed | `0x7100ad7084`: travel shorter than this counts as no movement. |
+| `0x834` | 4 | `int32` | `emit_dist_particle_max` | Confirmed | `0x7100ad6358`: capacity used for distance-based emitters. |
+| `0x838` | 1 | `uint8` | `shape_type` | Confirmed | `0x7100ada3cc` dispatches through a 16-entry function table (0x71024bd018) indexed by this byte: 1 circle (0x7100add248), 2 circle equally divided (0x7100add418), 3 circle fill (0x7100add704), 5 sphere equally 64-divided (0x7100addf24), 6 sphere equally 32-divided (0x7100ade3b8), 11 box fill (0x7100adf0a8), 15 primitive (0x7100adf59c); entries 0, 4, 7..10, 12..14 not named here. `UpdateParams` special-cases types 2, 5, 6, 13 and 15. |
+| `0x839` | 1 | `uint8` | `shape_angle_mode` | Confirmed | `CalculateEmitCircle` (0x7100add24c): 0 uses the fixed phase 0x848, otherwise a time-varying phase. |
+| `0x83A` | 1 | `uint8` | `shape_rot_mode` | Confirmed | `0x7100add9d8` (sphere): value 1 uses 0x844 as the polar spread (instead of 0x840) and applies the rotation variant 0x83E; other values sample the polar angle at random. |
+| `0x83B` | 1 | `bytes[1]` | `unused_83B` | Unused | Zero in every file; no reader found. Corpus: zero in all 8244 emitters. |
+| `0x83C` | 1 | `uint8` | `sphere_direction_table_index` | Confirmed | `UpdateParams` (0x7100adc1a0): for shape type 5 with 0x874 == 0, `emit_rate = table[D[0x83c]]`. |
+| `0x83D` | 1 | `uint8` | `sphere64_division_count` | Confirmed | `UpdateParams` (0x7100adc1c0): for shape type 6 with 0x874 == 0, `emit_rate = (float)D[0x83d]`. |
+| `0x83E` | 1 | `uint8` | `shape_rot_variant` | Confirmed | `0x7100add9d8` (sphere, rot mode 1): switch 0..5 selects one of six constant axis vectors that the emitted point and direction are rotated onto. |
+| `0x83F` | 1 | `bytes[1]` | `unused_83F` | Unused | Nonzero in the corpus but no reader found. Corpus: nonzero in 6799 of 8244 emitters. |
+| `0x840` | 4 | `float` | `shape_angle_b` | Confirmed | `CalculateEmitCircle`: arc spread (`spread * (rand - 0.5)`). |
+| `0x844` | 4 | `float` | `shape_angle_c` | Confirmed | `0x7100add9d8` (sphere): polar spread used when 0x83A is 1. |
+| `0x848` | 4 | `float` | `shape_angle_d` | Confirmed | `CalculateEmitCircle`: fixed phase when 0x839 is 0. |
+| `0x84C` | 4 | `float` | `shape_angle_random` | Confirmed | `CalculateEmitCircleEquallyDivided` (0x7100add4fc): `angle += D[0x84c] * (2 * rand - 1)`. BotW only; TotK 0xDA4 has no reader. |
+| `0x850` | 4 | `float` | `shape_fill_ratio` | Confirmed | `CalculateEmitCircleFill` (0x7100add704): radial factor `sqrt(u + (1 - u) * (1 - fill)^2)`; 0 gives the outer shell, 1 a solid disc. |
+| `0x854` | 4 | `float` | `line_center_bias` | Confirmed | `0x7100adf2c0` / `0x7100adf338` (line shapes): offset `-(len + len * bias) / 2` shifts the sampled interval. |
+| `0x858` | 4 | `float` | `line_length` | Confirmed | `0x7100adf2c0` / `0x7100adf338` (line shapes): segment length times the Z emitter scale. |
+| `0x85C`–`0x867` | 12 | `float[3]` | `shape_radius_xyz` | Confirmed | `CalculateEmitCircle`: X radius at 0x85C and Z radius at 0x864; Y read by the sphere/box functions. |
+| `0x868`–`0x873` | 12 | `float[3]` | `emitter_volume_scale_xyz` | Confirmed | `0x7100ad5a74` copies it to `Emitter+0x650`; `0x7100ad73d0` multiplies it by the ESET animation lanes `+0xe0..0xe8` each frame. |
+| `0x874` | 4 | `int32` | `primitive_dist_mode` | Confirmed | `CalculateEmitCircleEquallyDivided`: 0 = divided, 1 = random division index, 2 = sequential index (`Emitter+0x34`); `UpdateParams` forces -1 for shape types outside {2,5,6,13,15}. |
+| `0x878` | 8 | `uint64` | `mesh_primitive_idx` | Confirmed | `Resource::InitializeEmitterGraphicsResource` (0x7100ae3e54): `-1` = none, otherwise looked up (0x7100ae495c) into `EmitterResource+0x80`. |
+| `0x880` | 4 | `int32` | `shape_divisions` | Confirmed | `CalculateEmitCircleEquallyDivided`: division count. |
+| `0x884` | 4 | `uint32` | `circle_division_random_reduction_percent` | Confirmed | `CalculateEmitCircleEquallyDivided`: random reduction of the division count (`count - count * pct * rand * k`). |
+| `0x888` | 4 | `uint32` | `line_division_count` | Confirmed | `0x7100adf338` (line equally divided, type 13): number of points on the line; mode 2 steps `Emitter+0x34` through them. |
+| `0x88C` | 4 | `uint32` | `line_division_reduction_percent` | Confirmed | `0x7100adf338`: with `primitive_dist_mode == 0` the count is reduced by `count * pct * rand * k`. |
+| `0x890`–`0x897` | 8 | `bytes[8]` | `unused_890_897` | Unused | Byte 0x890 is nonzero in the corpus but no reader found; TotK has no counterpart. Corpus: nonzero in 14 of 8244 emitters. |
+| `0x898` | 1 | `uint8` | `blend_target_enable` | Confirmed | `0x7100ae2834` (render-state setup): bit 0 of the blend target state. |
+| `0x899` | 1 | `uint8` | `depth_test_enable` | Confirmed | `0x7100ae2834`: bit 0 of the depth-stencil flags. BotW only (TotK 0xDE9 unused). |
+| `0x89A` | 1 | `uint8` | `depth_compare_func` | Confirmed | `0x7100ae2834`: depth comparison function (accepted when < 8). TotK 0xDEA `depth_stencil_mode_index` occupies the same slot. |
+| `0x89B` | 1 | `uint8` | `depth_write_enable` | Confirmed | `0x7100ae2834`: bit 1 of the depth-stencil flags; the draw dispatcher (0x7100acdcfc) also selects between two draw routines by this byte. TotK 0xDEB `depth_sort_ascending` occupies the same slot. |
+| `0x89C`–`0x89D` | 2 | `bytes[2]` | `unused_89C_89D` | Unused | Bytes 4 and 5 of the render-state block are never read by `0x7100ae2834`. Corpus: nonzero in 8244 of 8244 emitters. |
+| `0x89E` | 1 | `uint8` | `blend_mode_index` | Confirmed | `0x7100ae2834`: values below 5 index a packed table of blend factors/operations. |
+| `0x89F` | 1 | `uint8` | `cull_mode_index` | Confirmed | `0x7100ae2834`: values below 3 map through a packed table (0 none, 1/2 front/back). |
+| `0x8A0`–`0x8A7` | 8 | `bytes[8]` | `unused_8A0_8A7` | Unused | Not read by `0x7100ae2834`; 0x8A0 is a float in the corpus but has no reader. Corpus: nonzero in 1623 of 8244 emitters. |
+| `0x8A8` | 1 | `uint8` | `emit_infinite_flag` | Confirmed | `0x7100ad73d0`: when 1, the emitter is never retired (end test skipped); particle lifetime is also the "infinite" constant in `0x7100ada3cc`; `0x7100ae44ec` sets the ESET `+0x2a` flag. |
+| `0x8A9` | 1 | `uint8` | `is_trimming_prim` | Confirmed | `0x7100ae3e54`: trimming primitive is resolved only when set and 0x8D0 != -1. |
+| `0x8AA`–`0x8AB` | 2 | `bytes[2]` | `unused_8AA_8AB` | Unused | No reader found. Corpus: nonzero in 8244 of 8244 emitters. |
+| `0x8AC` | 1 | `uint8` | `shader_mode_index_DFC` | Confirmed | `0x7100adc8a8`: 0 sets shader flag bit `0x20000000`, 1 sets `0x40000000`. TotK 0xDFC uses the same slot. |
+| `0x8AD` | 1 | `uint8` | `rotation_random_sign_x_enable` | Confirmed | `CalculateRotationMatrix` (0x7100ae2264): flips the X rotation sign when the random value is >= 0.5; `0x7100adc8a8` sets feature bit 0x10000. |
+| `0x8AE` | 1 | `uint8` | `rotation_random_sign_y_enable` | Confirmed | `CalculateRotationMatrix` (0x7100ae2264): flips the Y rotation sign when the random value is >= 0.5; `0x7100adc8a8` sets feature bit 0x20000. |
+| `0x8AF` | 1 | `uint8` | `rotation_random_sign_z_enable` | Confirmed | `CalculateRotationMatrix` (0x7100ae2264): flips the Z rotation sign when the random value is >= 0.5; `0x7100adc8a8` sets feature bit 0x40000. |
+| `0x8B0` | 1 | `uint8` | `rotation_param_lane0_enable` | Confirmed | `UpdateParams`: when 0, lane 0 of the four rotation vec4s (0x700, 0x710, 0x720, 0x730) is zeroed. (The previous map called this block "light uniforms".) |
+| `0x8B1` | 1 | `uint8` | `rotation_param_lane1_enable` | Confirmed | `UpdateParams`: when 0, lane 1 of the four rotation vec4s (0x700, 0x710, 0x720, 0x730) is zeroed. (The previous map called this block "light uniforms".) |
+| `0x8B2` | 1 | `uint8` | `rotation_param_lane2_enable` | Confirmed | `UpdateParams`: when 0, lane 2 of the four rotation vec4s (0x700, 0x710, 0x720, 0x730) is zeroed. (The previous map called this block "light uniforms".) |
+| `0x8B3` | 1 | `uint8` | `shader_opt_flag3` | Confirmed | `0x7100adc8a8`: sets shader flag bit `0x10000000`. |
+| `0x8B4` | 1 | `uint8` | `shader_opt_flag4` | Confirmed | `0x7100adc8a8`: sets shader flag word 1 bit 1. |
+| `0x8B5`–`0x8B7` | 3 | `bytes[3]` | `unused_8B5_8B7` | Unused | Bytes 0x8B5..0x8B6 nonzero in the corpus; no reader found (TotK 0xE05..0xE07 also unused). Corpus: nonzero in 1995 of 8244 emitters. |
+| `0x8B8` | 4 | `int32` | `particle_lifespan` | Confirmed | `0x7100ad5a74` copies it as float to `Emitter+0x608`; `0x7100ada3cc` computes lifetime = `D+0x608 * (1 + random pct)`; `0x7100ad73d0` end test uses it. |
+| `0x8BC` | 4 | `int32` | `particle_lifespan_random_percent` | Confirmed | `0x7100ada3cc`: `floor(random * D[0x8bc] >> 32)` times a 0.01 constant added to the lifespan factor (i32 here, byte in TotK). |
+| `0x8C0` | 4 | `float` | `particle_attribute_w_random_amplitude` | Confirmed | `0x7100ada3cc`: stores `value + 1 + 2 * value * random` into the W lane of the particle scale vector. |
+| `0x8C4`–`0x8C7` | 4 | `bytes[4]` | `unused_8C4_8C7` | Unused | No reader found (TotK 0xE14 also unused). Corpus: nonzero in 3211 of 8244 emitters. |
+| `0x8C8` | 8 | `uint64` | `g3d_primitive_idx` | Confirmed | `EmitterResource::Setup` (0x7100adb7c0): looked up through `GetG3dPrimitive` when not -1. |
+| `0x8D0` | 8 | `uint64` | `trim_primitive_idx` | Confirmed | `0x7100ae3e54`: looked up when `is_trimming_prim` is set and the index is not -1. |
+| `0x8D8` | 1 | `uint8` | `loop_color0_enable` | Confirmed | `UpdateParams` writes `runtime_loop_track0_rate = float(period)` only when set; `0x7100ae19ac` / `0x7100ae1514` pass the period to `Calculate8KeyAnim` only when set. |
+| `0x8D9` | 1 | `uint8` | `loop_alpha0_enable` | Confirmed | `UpdateParams` writes `runtime_loop_track1_rate = float(period)` only when set; `0x7100ae19ac` / `0x7100ae1514` pass the period to `Calculate8KeyAnim` only when set. |
+| `0x8DA` | 1 | `uint8` | `loop_color1_enable` | Confirmed | `UpdateParams` writes `runtime_loop_track2_rate = float(period)` only when set; `0x7100ae19ac` / `0x7100ae1514` pass the period to `Calculate8KeyAnim` only when set. |
+| `0x8DB` | 1 | `uint8` | `loop_alpha1_enable` | Confirmed | `UpdateParams` writes `runtime_loop_track3_rate = float(period)` only when set; `0x7100ae19ac` / `0x7100ae1514` pass the period to `Calculate8KeyAnim` only when set. |
+| `0x8DC` | 1 | `uint8` | `loop_scale_enable` | Confirmed | `UpdateParams` writes `runtime_loop_track4_rate = float(period)` only when set; `0x7100ae19ac` / `0x7100ae1514` pass the period to `Calculate8KeyAnim` only when set. |
+| `0x8DD` | 1 | `uint8` | `loop_color0_random_phase` | Confirmed | `UpdateParams` writes 1.0/0.0 to `runtime_loop_track0_random_enable`; the evaluators pass it as the random-phase flag. |
+| `0x8DE` | 1 | `uint8` | `loop_alpha0_random_phase` | Confirmed | `UpdateParams` writes 1.0/0.0 to `runtime_loop_track1_random_enable`; the evaluators pass it as the random-phase flag. |
+| `0x8DF` | 1 | `uint8` | `loop_color1_random_phase` | Confirmed | `UpdateParams` writes 1.0/0.0 to `runtime_loop_track2_random_enable`; the evaluators pass it as the random-phase flag. |
+| `0x8E0` | 1 | `uint8` | `loop_alpha1_random_phase` | Confirmed | `UpdateParams` writes 1.0/0.0 to `runtime_loop_track3_random_enable`; the evaluators pass it as the random-phase flag. |
+| `0x8E1` | 1 | `uint8` | `loop_scale_random_phase` | Confirmed | `UpdateParams` writes 1.0/0.0 to `runtime_loop_track4_random_enable`; the evaluators pass it as the random-phase flag. |
+| `0x8E2`–`0x8E3` | 2 | `bytes[2]` | `unused_8E2_8E3` | Unused | No reader found. Corpus: nonzero in 2183 of 8244 emitters. |
+| `0x8E4` | 4 | `int32` | `loop_color0_period_i32` | Confirmed | Loop period in frames: `UpdateParams` converts it to float into `runtime_loop_track0_rate`; read directly by the evaluators. |
+| `0x8E8` | 4 | `int32` | `loop_alpha0_period_i32` | Confirmed | Loop period in frames: `UpdateParams` converts it to float into `runtime_loop_track1_rate`; read directly by the evaluators. |
+| `0x8EC` | 4 | `int32` | `loop_color1_period_i32` | Confirmed | Loop period in frames: `UpdateParams` converts it to float into `runtime_loop_track2_rate`; read directly by the evaluators. |
+| `0x8F0` | 4 | `int32` | `loop_alpha1_period_i32` | Confirmed | Loop period in frames: `UpdateParams` converts it to float into `runtime_loop_track3_rate`; read directly by the evaluators. |
+| `0x8F4` | 4 | `int32` | `loop_scale_period_i32` | Confirmed | Loop period in frames: `UpdateParams` converts it to float into `runtime_loop_track4_rate`; read directly by the evaluators. |
+| `0x8F8`–`0x8FF` | 8 | `bytes[8]` | `unused_8F8_8FF` | Unused | Bytes nonzero in the corpus but no reader found; TotK uses 0xE40..0xE44 for key interpolation modes, which BotW does not read. Corpus: nonzero in 7953 of 8244 emitters. |
+| `0x900`–`0x913` | 20 | `bytes[20]` | `unused_900_913` | Unused | No reader found (0x900 appears only as the low bits of a constant-pool address). Corpus: nonzero in 8130 of 8244 emitters. |
+| `0x914` | 4 | `int32` | `shader_idx_normal` | Confirmed | `EmitterResource::Setup` (0x7100adb7c0): `ShaderManager::GetShader(D[0x914])` into `EmitterResource+0x340`. |
+| `0x918` | 4 | `int32` | `compute_shader0` | Confirmed | `Setup`: `shaderTable + D[0x918] * 0x40` into `EmitterResource+0x358` when not -1. |
+| `0x91C` | 4 | `int32` | `shader_idx_pass1` | Confirmed | `Setup`: second graphics shader, skipped when -1 (`EmitterResource+0x348`). |
+| `0x920`–`0x923` | 4 | `bytes[4]` | `unused_920_923` | Unused | Zero in every file; no reader found. Corpus: zero in all 8244 emitters. |
+| `0x924` | 4 | `int32` | `shader_idx_pass2` | Confirmed | `Setup`: third graphics shader, skipped when -1 (`EmitterResource+0x350`). |
+| `0x928`–`0x92B` | 4 | `bytes[4]` | `unused_928_92B` | Unused | No reader found. Corpus: zero in all 8244 emitters. |
+| `0x92C` | 4 | `int32` | `custom_shader_index` | Confirmed | `FUN_7100ac99d0` (CreateEmitter): 0 selects the default callback slot, otherwise callback `(id + 8) * 0x58 + 0x8d8` of the system; a missing callback logs "CustomShader Callback not Set" and is skipped. |
+| `0x930`–`0x967` | 56 | `bytes[56]` | `unused_930_967` | Unused | No reader found (TotK 0xE78..0xEF7 is the same unused block). Corpus: nonzero in 8035 of 8244 emitters. |
+| `0x968` | 4 | `int32` | `custom_action_index` | Confirmed | `FUN_7100ac99d0`: values > 0 select action callback `(id - 1) * 0x58 + 0x8d8` (requires chunk slot `+0x310`). |
+| `0x96C` | 4 | `float` | `all_directional_speed` | Confirmed | `0x7100ad5a74` copies it to `Emitter+0x62c`; `0x7100ad73d0` scales it by the ESET lane `+0x1d8`; every shape emit function multiplies the emitted direction by it (`param_7+0x6c` = `Emitter+0x62c`). |
+| `0x970` | 4 | `float` | `designated_direction_speed` | Confirmed | `0x7100ad5a74` copies it to `Emitter+0x638`; `0x7100ada3cc` scales the designated direction by it (times the ESET lane `+0x200`). |
+| `0x974`–`0x97F` | 12 | `float[3]` | `designated_direction_xyz` | Confirmed | `0x7100ada3cc`: base direction vector added to the emitted direction (`dir + vec * speed`), optionally transformed when 0x7F3 is set. |
+| `0x980` | 4 | `float` | `emission_direction_spread_degrees` | Confirmed | `0x7100ada3cc`: `value / 90 + 1` is the lower bound of the cone sample; non-zero rotates the emitted direction into a random cone around it. |
+| `0x984` | 4 | `float` | `emission_tangent_amount` | Confirmed | `0x7100ada3cc`: adds `normalize(XZ tangent of the emitted position) * value` to the direction (random XZ direction at the origin). |
+| `0x988` | 4 | `float` | `emission_direction_random_x` | Confirmed | `0x7100ada3cc`: `direction.x += randomTable.x * value`. |
+| `0x98C` | 4 | `float` | `emission_direction_random_y` | Confirmed | `0x7100ada3cc`: `direction.y += randomTable.y * value`. |
+| `0x990` | 4 | `float` | `emission_direction_random_z` | Confirmed | `0x7100ada3cc`: `direction.z += randomTable.z * value`. |
+| `0x994` | 4 | `float` | `initial_speed_random_percent` | Confirmed | `0x7100ada3cc`: speed factor `1 + eset(+0x1dc) * random * k * (value / 100)`. |
+| `0x998` | 4 | `float` | `emitter_motion_inherit_scale` | Confirmed | `0x7100ada3cc`: adds `emitterVelocity(Emitter+0x380) * value` to the direction. |
+| `0x99C`–`0x9A3` | 8 | `bytes[8]` | `unused_99C_9A3` | Unused | Nonzero in the corpus but no reader found; TotK 0xF2C `emitter_motion_inherit_max` and its neighbours have no BotW reader. Corpus: nonzero in 4074 of 8244 emitters. |
+| `0x9A4` | 1 | `uint8` | `color0_mode` | Confirmed | `UpdateParams`: 0 copies the constant (0x9A8) into key 0 of the table at 0x3C0; `0x7100ae19ac`/`0x7100ae1e08`: 2 evaluates the keys, 3 (color only) selects a discrete key. |
+| `0x9A5` | 1 | `uint8` | `color1_mode` | Confirmed | `UpdateParams`: 0 copies the constant (0x9B8) into key 0 of the table at 0x4C0; `0x7100ae19ac`/`0x7100ae1e08`: 2 evaluates the keys, 3 (color only) selects a discrete key. |
+| `0x9A6` | 1 | `uint8` | `alpha0_mode` | Confirmed | `UpdateParams`: 0 copies the constant (0x9B4) into key 0 of the table at 0x440; `0x7100ae19ac`/`0x7100ae1e08`: 2 evaluates the keys, 3 (color only) selects a discrete key. |
+| `0x9A7` | 1 | `uint8` | `alpha1_mode` | Confirmed | `UpdateParams`: 0 copies the constant (0x9C4) into key 0 of the table at 0x540; `0x7100ae19ac`/`0x7100ae1e08`: 2 evaluates the keys, 3 (color only) selects a discrete key. |
+| `0x9A8`–`0x9B3` | 12 | `float[3]` | `color0_const_rgb` | Confirmed | `UpdateParams` and `0x7100ae19ac`: constant color0. |
+| `0x9B4` | 4 | `float` | `alpha0_const` | Confirmed | Constant alpha0 (`UpdateParams` writes it to 0x440). |
+| `0x9B8`–`0x9C3` | 12 | `float[3]` | `color1_const_rgb` | Confirmed | Constant color1 (`UpdateParams` writes it to 0x4C0). |
+| `0x9C4` | 4 | `float` | `alpha1_const` | Confirmed | Constant alpha1 (`UpdateParams` writes it to 0x540). |
+| `0x9C8`–`0x9D3` | 12 | `float[3]` | `particle_scale_xyz` | Confirmed | `0x7100ad5a74` copies it to `Emitter+0x644`; `0x7100ada3cc` multiplies it by the ESET scale lanes into the particle scale. |
+| `0x9D4`–`0x9DF` | 12 | `float[3]` | `particle_scale_rnd` | Confirmed | `0x7100ada3cc`: uniform random factor `1 + (v / 100) * random` (x), or per-axis when 0x9D4 != 0x9D8. |
+| `0x9E0`–`0x9EB` | 12 | `bytes[12]` | `unused_9E0_9EB` | Unused | No reader found (TotK 0xF80..0xF8B also unused). Corpus: nonzero in 6684 of 8244 emitters. |
+| `0x9EC` | 1 | `uint8` | `waveform_alpha_enable` | Confirmed | `0x7100ae19ac`: multiplies alpha by waveform 0 when set. |
+| `0x9ED` | 1 | `uint8` | `waveform_scale_x_enable` | Confirmed | `0x7100ae1514`: applies waveform 0 to scale X (and Z) when set. |
+| `0x9EE` | 1 | `uint8` | `waveform_scale_y_enable` | Confirmed | `0x7100ae1514`: additionally applies waveform 1 to scale Y when set. |
+| `0x9EF` | 1 | `uint8` | `waveform_mode_packed` | Confirmed | High nibble: 0 cosine, 1 sawtooth, 2 square (`0x7100ae19ac`, `0x7100ae1514`); `0x7100adc8a8` maps values below 0x30 through a table into shader flag word 0. |
+| `0x9F0`–`0x9F7` | 8 | `bytes[8]` | `unused_9F0_9F7` | Unused | No reader found. Corpus: zero in all 8244 emitters. |
+| `0x9F8` | 8 | `uint64` | `tex_slot0_guid` | Confirmed | `InitializeEmitterGraphicsResource` (0x7100ae3e54): passed to the texture lookup `0x7100ae42a8` (-1 = none) into `EmitterResource+0x48`. |
+| `0xA00`–`0xA02` | 3 | `bytes[3]` | `tex_slot0_sampler_select` | Confirmed | `0x7100ad3578` (called from `UpdateParams` with `D+0x9F8`): sampler index = `b[1] + b[0] * 4 + b[2] * 16` into the sampler table (stride 0xA8). Which byte is filter vs wrap is not established. |
+| `0xA03`–`0xA17` | 21 | `bytes[21]` | `unverified_A03_A17` | Unverified | No reader found; part of the 0x20-byte slot record. Bytes 0xA0C..0xA10 are nonzero in the corpus. |
+| `0xA18` | 8 | `uint64` | `tex_slot1_guid` | Confirmed | `InitializeEmitterGraphicsResource` (0x7100ae3e54): passed to the texture lookup `0x7100ae42a8` (-1 = none) into `EmitterResource+0x50`. |
+| `0xA20`–`0xA22` | 3 | `bytes[3]` | `tex_slot1_sampler_select` | Confirmed | `0x7100ad3578` (called from `UpdateParams` with `D+0xA18`): sampler index = `b[1] + b[0] * 4 + b[2] * 16` into the sampler table (stride 0xA8). Which byte is filter vs wrap is not established. |
+| `0xA23`–`0xA37` | 21 | `bytes[21]` | `unverified_A23_A37` | Unverified | No reader found; part of the 0x20-byte slot record. Bytes 0xA2C..0xA30 are nonzero in the corpus. |
+| `0xA38` | 8 | `uint64` | `tex_slot2_guid` | Confirmed | `InitializeEmitterGraphicsResource` (0x7100ae3e54): passed to the texture lookup `0x7100ae42a8` (-1 = none) into `EmitterResource+0x58`. |
+| `0xA40`–`0xA42` | 3 | `bytes[3]` | `tex_slot2_sampler_select` | Confirmed | `0x7100ad3578` (called from `UpdateParams` with `D+0xA38`): sampler index = `b[1] + b[0] * 4 + b[2] * 16` into the sampler table (stride 0xA8). Which byte is filter vs wrap is not established. |
+| `0xA43`–`0xA57` | 21 | `bytes[21]` | `unverified_A43_A57` | Unverified | No reader found; part of the 0x20-byte slot record. Bytes 0xA4C..0xA50 are nonzero in the corpus. |
+| `0xA58` | 1 | `uint8` | `tex0_mode_index` | Confirmed | `0x7100adc8a8`: 1..3 set one shader feature bit each; 4 builds the frame table (see `tex0_flipbook_runtime_block`). |
+| `0xA59` | 1 | `uint8` | `tex0_uv_scroll` | Confirmed | `UpdateParams`: zeroes the scroll fields of `tex0_uniform_block` when 0. |
+| `0xA5A` | 1 | `uint8` | `tex0_uv_rotate` | Confirmed | `UpdateParams`: zeroes the rotate fields when 0. |
+| `0xA5B` | 1 | `uint8` | `tex0_uv_scale` | Confirmed | `UpdateParams`: writes the default scale (1.0) when 0. |
+| `0xA5C` | 1 | `uint8` | `tex0_uv_domain_scale_mode` | Confirmed | `UpdateParams`: values below 4 select two floats from a table into the uniform block. |
+| `0xA5D` | 1 | `uint8` | `tex0_shader_flag0` | Confirmed | `0x7100adc8a8`: sets shader feature bit 0x80000 when non-zero. |
+| `0xA5E` | 1 | `uint8` | `tex0_shader_flag1` | Confirmed | `0x7100adc8a8`: sets shader feature bit 0x100000 when non-zero. |
+| `0xA5F` | 1 | `uint8` | `tex0_shader_flag2` | Confirmed | `0x7100adc8a8`: sets shader feature bit 0x2000000 when non-zero. |
+| `0xA60`–`0xA67` | 8 | `bytes[8]` | `unused_A60_A67` | Unused | No reader found; byte 0xA60 nonzero in the corpus. Corpus: nonzero in 152 of 8244 emitters. |
+| `0xA68` | 1 | `uint8` | `tex1_mode_index` | Confirmed | `0x7100adc8a8`: 1..3 set one shader feature bit each; 4 builds the frame table (see `tex1_flipbook_runtime_block`). |
+| `0xA69` | 1 | `uint8` | `tex1_uv_scroll` | Confirmed | `UpdateParams`: zeroes the scroll fields of `tex1_uniform_block` when 0. |
+| `0xA6A` | 1 | `uint8` | `tex1_uv_rotate` | Confirmed | `UpdateParams`: zeroes the rotate fields when 0. |
+| `0xA6B` | 1 | `uint8` | `tex1_uv_scale` | Confirmed | `UpdateParams`: writes the default scale (1.0) when 0. |
+| `0xA6C` | 1 | `uint8` | `tex1_uv_domain_scale_mode` | Confirmed | `UpdateParams`: values below 4 select two floats from a table into the uniform block. |
+| `0xA6D` | 1 | `uint8` | `tex1_shader_flag0` | Confirmed | `0x7100adc8a8`: sets shader feature bit 0x200000 when non-zero. |
+| `0xA6E` | 1 | `uint8` | `tex1_shader_flag1` | Confirmed | `0x7100adc8a8`: sets shader feature bit 0x400000 when non-zero. |
+| `0xA6F` | 1 | `uint8` | `tex1_shader_flag2` | Confirmed | `0x7100adc8a8`: sets shader feature bit 0x4000000 when non-zero. |
+| `0xA70`–`0xA77` | 8 | `bytes[8]` | `unused_A70_A77` | Unused | No reader found. Corpus: nonzero in 119 of 8244 emitters. |
+| `0xA78` | 1 | `uint8` | `tex2_mode_index` | Confirmed | `0x7100adc8a8`: 1..3 set one shader feature bit each; 4 builds the frame table (see `tex2_flipbook_runtime_block`). |
+| `0xA79` | 1 | `uint8` | `tex2_uv_scroll` | Confirmed | `UpdateParams`: zeroes the scroll fields of `tex2_uniform_block` when 0. |
+| `0xA7A` | 1 | `uint8` | `tex2_uv_rotate` | Confirmed | `UpdateParams`: zeroes the rotate fields when 0. |
+| `0xA7B` | 1 | `uint8` | `tex2_uv_scale` | Confirmed | `UpdateParams`: writes the default scale (1.0) when 0. |
+| `0xA7C` | 1 | `uint8` | `tex2_uv_domain_scale_mode` | Confirmed | `UpdateParams`: values below 4 select two floats from a table into the uniform block. |
+| `0xA7D` | 1 | `uint8` | `tex2_shader_flag0` | Confirmed | `0x7100adc8a8`: sets shader feature bit 0x800000 when non-zero. |
+| `0xA7E` | 1 | `uint8` | `tex2_shader_flag1` | Confirmed | `0x7100adc8a8`: sets shader feature bit 0x1000000 when non-zero. |
+| `0xA7F` | 1 | `uint8` | `tex2_shader_flag2` | Confirmed | `0x7100adc8a8`: sets shader feature bit 0x8000000 when non-zero. |
+| `0xA80`–`0xA87` | 8 | `bytes[8]` | `unused_A80_A87` | Unused | No reader found. Corpus: nonzero in 49 of 8244 emitters. |
 
-| BotW Offset | Size (B) | Type | Field Name | Executable Behavior & Ghidra Verification Evidence |
-|:---:|:---:|:---:|:---|:---|
-| `0x000` | 4 | `char[4]` | `magic` | FourCC node magic: `'EMTR'`. |
-| `0x004` | 4 | `uint32` | `node_size` | Serialized node data length: `0x0A88` (2,696 bytes). |
-| `0x008` | 4 | `uint32` | `version` | Binary format version (`0x00041400` / `0x14` = 20). |
-| `0x00C` | 4 | `uint32` | `flags` | Node behavior flags. |
-| `0x010` | 64 | `char[64]` | `emitter_name` | Emitter identifier null-terminated C-string. |
-| **`+0x050`**| — | — | **ResEmitter Body Start** | Stored into `EmitterResource + 0x18`; base for internal resource offsets. |
-| `0x050` | 4 | `uint32` | `eset_emitter_index` | Emitter index within parent ESET list. |
-| `0x054` | 4 | `uint32` | `shader_flags_init` | Initial shader flag bitmask; written to runtime mask by `FUN_7100adb8f4:L450`. |
-| `0x058` | 4 | `uint32` | `custom_param_flags`| Custom attribute binding flags. |
-| `0x05C` | 4 | `uint32` | `lod_flags` | LOD calculation flags. |
-| `0x060` | 4 | `uint32` | `color0_key_count` | Keyframe count (0..8) for Color0 RGB track. Checked in `FUN_7100adb8f4:L207`. |
-| `0x064` | 4 | `uint32` | `alpha0_key_count` | Keyframe count (0..8) for Alpha0 track. Checked in `FUN_7100adb8f4:L257`. |
-| `0x068` | 4 | `uint32` | `color1_key_count` | Keyframe count (0..8) for Color1 RGB track. Checked in `FUN_7100adb8f4:L232`. |
-| `0x06C` | 4 | `uint32` | `alpha1_key_count` | Keyframe count (0..8) for Alpha1 track. Checked in `FUN_7100adb8f4:L282`. |
-| `0x070` | 4 | `uint32` | `scale_key_count` | Keyframe count (0..8) for Scale XYZ track. Checked in `FUN_7100adb8f4:L307`. |
-| `0x074` | 4 | `uint32` | `rot_key_count` | Keyframe count (0..8) for Track 5 / Rotation. Checked in `FUN_7100adb8f4:L332`. |
-| `0x080` | 4 | `float` | `color0_loop_timer` | Staged loop cycle duration for Color0. `FUN_7100adb8f4:L363`. |
-| `0x084` | 4 | `float` | `color1_loop_timer` | Staged loop cycle duration for Color1. `FUN_7100adb8f4:L375`. |
-| `0x088` | 4 | `float` | `alpha0_loop_timer` | Staged loop cycle duration for Alpha0. `FUN_7100adb8f4:L385`. |
-| `0x08C` | 4 | `float` | `alpha1_loop_timer` | Staged loop cycle duration for Alpha1. `FUN_7100adb8f4:L396`. |
-| `0x090` | 4 | `float` | `scale_loop_timer` | Staged loop cycle duration for Scale. `FUN_7100adb8f4:L406`. |
-| `0x094` | 4 | `float` | `color0_loop_flag` | Staged loop enable flag float for Color0. `FUN_7100adb8f4:L369`. |
-| `0x098` | 4 | `float` | `color1_loop_flag` | Staged loop enable flag float for Color1. `FUN_7100adb8f4:L380`. |
-| `0x09C` | 4 | `float` | `alpha0_loop_flag` | Staged loop enable flag float for Alpha0. `FUN_7100adb8f4:L390`. |
-| `0x0A0` | 4 | `float` | `alpha1_loop_flag` | Staged loop enable flag float for Alpha1. `FUN_7100adb8f4:L401`. |
-| `0x0A4` | 4 | `float` | `scale_loop_flag` | Staged loop enable flag float for Scale. `FUN_7100adb8f4:L411`. |
-| `0x0A8`–`0x2BF` | 536 | `bytes` | `uniform_staging` | GPU constant buffer parameters (`memcpy(pvVar2, dataStart, 0x750)` at `0x7100adb8f4:L635`). |
-| `0x2C0`–`0x30F` | `0x50`| `bytes` | `tex0_uniform_block`| Slot 0 UV transform matrix & scroll rates. Zeroed when `0xA59` is 0 (`0x7100adb8f4:L114`). |
-| `0x310`–`0x35F` | `0x50`| `bytes` | `tex1_uniform_block`| Slot 1 UV transform matrix & scroll rates. Zeroed when `0xA69` is 0 (`0x7100adb8f4:L123`). |
-| `0x360`–`0x3AF` | `0x50`| `bytes` | `tex2_uniform_block`| Slot 2 UV transform matrix & scroll rates. Zeroed when `0xA79` is 0 (`0x7100adb8f4:L132`). |
-| `0x3B0` | 4 | `float` | `alpha_scale` | Master alpha scale multiplier. |
-| `0x3C0`–`0x43F` | 128 | `float[8][4]` | `kf_color0` | Color0 RGB keyframes `(val.xyz, time.w)`. Fallback to constant `0x9A8` when mode 0 (`0x7100adb8f4:L74`). |
-| `0x440`–`0x4BF` | 128 | `float[8][4]` | `kf_alpha0` | Alpha0 keyframes `(val.x, time.w)`. Fallback to constant `0x9B4` when mode 0 (`0x7100adb8f4:L80`). |
-| `0x4C0`–`0x53F` | 128 | `float[8][4]` | `kf_color1` | Color1 RGB keyframes `(val.xyz, time.w)`. Fallback to constant `0x9B8` when mode 0 (`0x7100adb8f4:L84`). |
-| `0x540`–`0x5BF` | 128 | `float[8][4]` | `kf_alpha1` | Alpha1 keyframes `(val.x, time.w)`. Fallback to constant `0x9C4` when mode 0 (`0x7100adb8f4:L90`). |
-| `0x600`–`0x67F` | 128 | `float[8][4]` | `kf_scale` | Scale XYZ keyframes `(val.xyz, time.w)`. `FUN_7100adb8f4:L312`. |
-| `0x680`–`0x6FF` | 128 | `float[8][4]` | `kf_rot` | Track 5 / Rotation keyframes `(val.xyz, time.w)`. `FUN_7100adb8f4:L337`. |
-| `0x700`–`0x73C` | 64 | `bytes` | `light_uniforms` | Dynamic point light uniform block. Zeroed if channels `0x8B0..0x8B2` disabled (`0x7100adb8f4:L186-205`). |
-| `0x752` | 1 | `uint8` | `emitter_calc_type` | Mode: 0 = CPU particle simulation, 2 = GPU compute simulation (`0x7100ad5a74:L75`, `0x7100ad73d0:L953`). |
-| `0x753` | 1 | `uint8` | `feature_mask_variant` | Bitfield variant selector for `param_1[1]` in `FUN_7100adc8a8:L170`. |
-| `0x754` | 1 | `uint8` | `is_fade_alpha_fade` | Fade-out enabled flag; tested in `CalculateParticle` (`0x7100ad73d0:L885`). |
-| `0x755` | 1 | `uint8` | `fade_out_curve` | Fade-out alpha curve selector (0=Off, 1..3=Curve); tested in `0x7100ad73d0:L885, 991`. |
-| `0x756` | 1 | `uint8` | `fade_out_scale` | Fade-out scale flag; tested in `0x7100ad73d0:L886, 991`. |
-| `0x757` | 1 | `uint8` | `seed_source` | Random seed source: 0 = Global PRNG, 1 = Parent ESET seed, 2 = Fixed seed (`0x7100ad583c:L97`). |
-| `0x758` | 1 | `uint8` | `is_matrix_by_emit` | 1 = Recalculate transform matrix via `CreateResMatrix` on each emit (`0x7100ad69b0:L12`). |
-| `0x75B` | 1 | `uint8` | `fade_in_curve` | Fade-in alpha curve selector; tested in `0x7100ad73d0:L877`. |
-| `0x75C` | 1 | `uint8` | `fade_in_scale` | Fade-in scale flag; tested in `0x7100ad73d0:L877`. |
-| `0x760` | 4 | `uint32` | `fixed_seed` | Fixed random seed value applied when `seed_source == 2` (`0x7100ad583c:L99`). |
-| `0x768` | 4 | `int32` | `fade_out_time` | Fade-out duration in frames (divisor in `0x7100ad73d0:L888, 992`). |
-| `0x76C` | 4 | `int32` | `fade_in_time` | Fade-in duration in frames (divisor in `0x7100ad73d0:L880`). |
-| `0x770` | 12 | `float[3]` | `emitter_trans_xyz` | Emitter base translation coordinates XYZ (`CreateResMatrix` `0x7100ad6560:L147`). |
-| `0x77C` | 12 | `float[3]` | `emitter_trans_rnd` | Emitter translation random range XYZ (`0x7100ad6560:L150`). |
-| `0x788` | 12 | `float[3]` | `emitter_rot_xyz` | Emitter base Euler rotation XYZ in radians (`0x7100ad6560:L55`). |
-| `0x794` | 12 | `float[3]` | `emitter_rot_rnd` | Emitter rotation random range XYZ in radians (`0x7100ad6560:L58`). |
-| `0x7A0` | 12 | `float[3]` | `emitter_scale_xyz` | Emitter base scaling factor XYZ (`0x7100ad6560:L207`). |
-| `0x7E1` | 1 | `uint8` | `child_pre_draw` | 1 = Draw child emitter before parent, 0 = Draw after parent (`EmitterSet::Draw` `0x7100aca65c:L20`). |
-| `0x7E4` | 1 | `uint8` | `child_timing_mode` | 1 = Child emitter trigger timing relative to parent particle lifetime % (`0x7100ad73d0:L191`). |
-| `0x7F0` | 1 | `uint8` | `emit_loop_mode` | Emission loop mode: 0 = Loop / Infinite, 1 = One-Time (`0x7100ae44ec:L107`, `0x7100ad73d0:L924`). |
-| `0x7F1` | 1 | `uint8` | `gravity_coord` | Gravity vector coordinate system: 0 = World, 1 = Emitter Local (`FUN_7100adc8a8:L11`). |
-| `0x7F2` | 1 | `uint8` | `emit_dist_enable` | Emission trigger mode: 0 = Time-based, 1 = Distance-based (`0x7100ad7084:L35`). |
-| `0x7F4` | 4 | `uint32` | `emit_start_delay` | Delay before emission starts in frames (`0x7100ad73d0:L164`). |
-| `0x7F8` | 4 | `uint32` | `child_emit_timing` | Parent particle life % threshold triggering child emitter (`0x7100ad73d0:L192`). |
-| `0x7FC` | 4 | `uint32` | `emit_duration` | Active emission period duration in frames (`0x7100ad73d0:L163`). |
-| `0x800` | 4 | `float` | `emit_rate` | Particles emitted per frame (`TryEmitParticle` `0x7100ad7084:L40`). |
-| `0x804` | 4 | `int32` | `emit_rate_random` | Emission rate random variance % (`0x7100ad7084:L39`). |
-| `0x808` | 4 | `int32` | `emit_interval` | Emission interval period in frames (`UpdateByEmit` `0x7100ad69b0:L7`). |
-| `0x80C` | 4 | `int32` | `emit_interval_rnd` | Emission interval random variance in frames (`0x7100ad69b0:L8`). |
-| `0x818` | 12 | `float[3]` | `gravity_xyz` | Constant acceleration / gravity vector XYZ. |
-| `0x838` | 1 | `uint8` | `shape_type` | Emission volume shape enum: 0=Point, 1=Circle, 2=CircleDiv, 3=CircleFill, 4=Sphere, 5=SphereFill, etc. (`0x7100ad7084:L44`, `0x7100adb8f4:L413`). |
-| `0x839` | 1 | `uint8` | `shape_angle_mode` | Angle generation mode: 0 = Static phase, 1 = Time-varying phase (`CalculateEmitCircle` `0x7100add248:L14`). |
-| `0x83A` | 1 | `uint8` | `shape_rot_mode` | Shape orientation mode. |
-| `0x83E` | 1 | `uint8` | `shape_rot_variant` | Coordinate basis frame variant. |
-| `0x840` | 4 | `float` | `shape_angle_b` | Emission arc spread in radians (`0x7100add248:L20`). |
-| `0x844` | 4 | `float` | `shape_angle_c` | Elevation / latitude cone angle in radians. |
-| `0x848` | 4 | `float` | `shape_angle_d` | Initial phase angle offset in radians (`0x7100add248:L15`). |
-| `0x850` | 4 | `float` | `shape_hollow_ratio`| Shape volume fill ratio: 0.0 = Solid Volume, 1.0 = Surface Shell (`CalculateEmitCircleFill` `0x7100add704:L79`). |
-| `0x85C` | 12 | `float[3]` | `shape_radius_xyz` | Shape semi-axis radii (X: `0x85C`, Y: `0x860`, Z: `0x864`) (`0x7100add248:L42`, `0x7100add704:L91`). |
-| `0x878` | 8 | `uint64` | `mesh_primitive_idx`| Mesh primitive index looked up by `Resource::InitializeEmitterGraphicsResource` (`0x7100ae3e54:L19`). |
-| `0x880` | 4 | `int32` | `shape_divisions` | Slice division count for equally divided shapes. |
-| `0x898` | 1 | `uint8` | `render_color_write`| Color buffer write mask: 1 = Enabled. |
-| `0x899` | 1 | `uint8` | `render_depth_write`| Depth buffer write mask: 1 = Enabled. |
-| `0x89A` | 1 | `uint8` | `render_depth_func` | Depth comparison function (GX2 / NVN comparison enum). |
-| `0x89B` | 1 | `uint8` | `render_depth_test` | Depth test enable: 1 = Enabled. |
-| `0x89C` | 1 | `uint8` | `render_alpha_test` | Alpha test enable: 1 = Enabled. |
-| `0x89D` | 1 | `uint8` | `render_alpha_func` | Alpha test comparison function enum. |
-| `0x89E` | 1 | `uint8` | `render_blend_mode` | Blend mode enum: 0=AlphaBlend, 1=Additive, 2=Subtractive, 3=Multiplicative, 4=Screen, 5=Replace. |
-| `0x89F` | 1 | `uint8` | `render_cull_mode` | Rasterizer cull mode: 0=None/Double-sided, 1=Front, 2=Back. |
-| `0x8A0` | 4 | `float` | `render_alpha_ref` | Alpha test reference cutoff threshold. |
-| `0x8A8` | 1 | `uint8` | `emit_infinite_flag`| 1 = Infinite emitter lifetime (emitter never expires) (`0x7100ae44ec:L102`, `0x7100ad73d0:L989`). |
-| `0x8A9` | 1 | `uint8` | `is_trimming_prim` | 1 = Trimming primitive enabled (`0x7100ae3e54:L26`). |
-| `0x8AC` | 1 | `uint8` | `sort_mode` | Particle sort mode (encoded into bits 29/30 of feature mask in `FUN_7100adc8a8:L135`). |
-| `0x8AD` | 1 | `uint8` | `rot_rev_rand_x` | 1 = 50% random inversion of rotation X axis (`CalculateRotationMatrix` `0x7100ae2264:L46`). |
-| `0x8AE` | 1 | `uint8` | `rot_rev_rand_y` | 1 = 50% random inversion of rotation Y axis (`0x7100ae2264:L56`). |
-| `0x8AF` | 1 | `uint8` | `rot_rev_rand_z` | 1 = 50% random inversion of rotation Z axis (`0x7100ae2264:L59`). |
-| `0x8B0` | 1 | `uint8` | `light_channel0_mode`| Dynamic point light channel 0 enable (`FUN_7100adb8f4:L186`). |
-| `0x8B1` | 1 | `uint8` | `light_channel1_mode`| Dynamic point light channel 1 enable (`FUN_7100adb8f4:L193`). |
-| `0x8B2` | 1 | `uint8` | `light_channel2_mode`| Dynamic point light channel 2 enable (`FUN_7100adb8f4:L200`). |
-| `0x8B8` | 4 | `uint32` | `particle_lifespan` | Particle lifespan duration in frames (`0x7100ad73d0:L241, 982, 990`). |
-| `0x8BC` | 4 | `uint32` | `particle_lifespan_rnd`| Random lifespan variance percentage. |
-| `0x8C0` | 4 | `float` | `particle_fade_rate`| Particle alpha fade-in duration in frames. |
-| `0x8C4` | 4 | `uint32` | `particle_fade_rnd` | Particle alpha fade-out duration / variance in frames. |
-| `0x8C8` | 8 | `uint64` | `g3d_primitive_idx` | G3D primitive index looked up by `EmitterResource::Setup` (`0x7100adb7c0:L18`). |
-| `0x8D0` | 8 | `uint64` | `trim_primitive_idx`| Trimming primitive index looked up by `0x7100ae3e54:L26`. |
-| `0x8D8` | 1 | `uint8` | `color0_loop_enable`| Color0 animation looping enabled (`0x7100ae19ac:L87`, `0x7100adb8f4:L360`). |
-| `0x8D9` | 1 | `uint8` | `alpha0_loop_enable`| Alpha0 animation looping enabled (`0x7100ae19ac:L108`, `0x7100adb8f4:L372`). |
-| `0x8DA` | 1 | `uint8` | `color1_loop_enable`| Color1 animation looping enabled (`0x7100ae1e08:L87`, `0x7100adb8f4:L382`). |
-| `0x8DB` | 1 | `uint8` | `alpha1_loop_enable`| Alpha1 animation looping enabled (`0x7100ae1e08:L108`, `0x7100adb8f4:L393`). |
-| `0x8DC` | 1 | `uint8` | `scale_loop_enable` | Scale animation looping enabled (`0x7100ae1514:L52`, `0x7100adb8f4:L403`). |
-| `0x8DD` | 1 | `uint8` | `color0_loop_rnd` | Color0 loop random initial phase (`0x7100ae19ac:L93`, `0x7100adb8f4:L366`). |
-| `0x8DE` | 1 | `uint8` | `alpha0_loop_rnd` | Alpha0 loop random initial phase (`0x7100ae19ac:L114`, `0x7100adb8f4:L377`). |
-| `0x8DF` | 1 | `uint8` | `color1_loop_rnd` | Color1 loop random initial phase (`0x7100ae1e08:L93`, `0x7100adb8f4:L387`). |
-| `0x8E0` | 1 | `uint8` | `alpha1_loop_rnd` | Alpha1 loop random initial phase (`0x7100ae1e08:L114`, `0x7100adb8f4:L398`). |
-| `0x8E1` | 1 | `uint8` | `scale_loop_rnd` | Scale loop random initial phase (`0x7100ae1514:L55`, `0x7100adb8f4:L408`). |
-| `0x8E4` | 4 | `int32` | `color0_loop_rate` | Color0 loop period in frames (`0x7100ae19ac:L91`, `0x7100adb8f4:L361`). |
-| `0x8E8` | 4 | `int32` | `alpha0_loop_rate` | Alpha0 loop period in frames (`0x7100ae19ac:L112`, `0x7100adb8f4:L373`). |
-| `0x8EC` | 4 | `int32` | `color1_loop_rate` | Color1 loop period in frames (`0x7100ae1e08:L91`, `0x7100adb8f4:L383`). |
-| `0x8F0` | 4 | `int32` | `alpha1_loop_rate` | Alpha1 loop period in frames (`0x7100ae1e08:L112`, `0x7100adb8f4:L394`). |
-| `0x8F4` | 4 | `int32` | `scale_loop_rate` | Scale loop period in frames (`0x7100ae1514:L53`, `0x7100adb8f4:L404`). |
-| `0x914` | 4 | `int32` | `shader_normal_idx` | Normal vertex/pixel shader index in `SHDA`/`GRSN` archive (`0x7100adb7c0:L25`). |
-| `0x918` | 4 | `int32` | `compute_shader_idx`| Compute shader index in shader archive (`0x7100adb7c0:L35`). |
-| `0x91C` | 4 | `int32` | `shader_pass1_idx` | Pass 1 shader index in shader archive (`0x7100adb7c0:L28`). |
-| `0x924` | 4 | `int32` | `shader_pass2_idx` | Pass 2 shader index in shader archive (`0x7100adb7c0:L30`). |
-| `0x974` | 4 | `float` | `spread_cone_angle` | Initial directional dispersion cone angle in radians. |
-| `0x9A4` | 1 | `uint8` | `color0_mode` | Color0 mode: 0 = Constant, 2 = 8-Key Anim, 3 = Random (`0x7100ae19ac:L64`, `0x7100adb8f4:L73`). |
-| `0x9A5` | 1 | `uint8` | `color1_mode` | Color1 mode: 0 = Constant, 2 = 8-Key Anim, 3 = Random (`0x7100ae1e08:L64`, `0x7100adb8f4:L83`). |
-| `0x9A6` | 1 | `uint8` | `alpha0_mode` | Alpha0 mode: 0 = Constant, 2 = 8-Key Anim, 3 = Random (`0x7100ae19ac:L107`, `0x7100adb8f4:L79`). |
-| `0x9A7` | 1 | `uint8` | `alpha1_mode` | Alpha1 mode: 0 = Constant, 2 = 8-Key Anim, 3 = Random (`0x7100ae1e08:L107`, `0x7100adb8f4:L89`). |
-| `0x9A8` | 12 | `float[3]` | `color0_const_rgb` | Color0 constant RGB values (`0x7100ae19ac:L39`, `0x7100adb8f4:L74`). |
-| `0x9B4` | 4 | `float` | `alpha0_const` | Alpha0 constant alpha scalar (`0x7100ae19ac:L54`, `0x7100adb8f4:L80`). |
-| `0x9B8` | 12 | `float[3]` | `color1_const_rgb` | Color1 constant RGB values (`0x7100ae1e08:L39`, `0x7100adb8f4:L84`). |
-| `0x9C4` | 4 | `float` | `alpha1_const` | Alpha1 constant alpha scalar (`0x7100ae1e08:L54`, `0x7100adb8f4:L90`). |
-| `0x9C8` | 12 | `float[3]` | `particle_scale_xyz`| Base particle dimensions XYZ. |
-| `0x9D4` | 12 | `float[3]` | `particle_scale_rnd`| Base particle scale random variance range XYZ. |
-| `0x9EC` | 1 | `uint8` | `color_pulse_enable`| 1 = Color pulsing waveform enabled (`0x7100ae1e08:L144`). |
-| `0x9ED` | 1 | `uint8` | `scale_pulse_enable`| 1 = Scale pulsing waveform enabled (`0x7100ae1514:L65`). |
-| `0x9EF` | 1 | `uint8` | `pulse_mode` | Pulsing waveform mode (high nibble: 0=Cos, 1=Sawtooth, 2=Square; `0x7100ae1e08:L151`, `0x7100adc8a8:L14`). |
-| `0x9F8` | 8 | `uint64` | `tex_slot0_guid` | Texture Slot 0 GUID: Albedo / Base Color (`0x7100ae3e54:L14`, `0x7100adb8f4:L58`). |
-| `0xA18` | 8 | `uint64` | `tex_slot1_guid` | Texture Slot 1 GUID: Alpha / Dissolve Mask (`0x7100ae3e54:L16`, `0x7100adb8f4:L63`). |
-| `0xA38` | 8 | `uint64` | `tex_slot2_guid` | Texture Slot 2 GUID: Distortion / Normal / Flow (`0x7100ae3e54:L18`, `0x7100adb8f4:L68`). |
-| `0xA58` | 1 | `uint8` | `tex0_flipbook_type`| Slot 0 flipbook animation type (0=Standard, 4=Flipbook; `0x7100adc8a8:L18`). |
-| `0xA59` | 1 | `uint8` | `tex0_uv_scroll` | Slot 0 UV translation scroll enable (`0x7100adb8f4:L114`). |
-| `0xA5A` | 1 | `uint8` | `tex0_uv_rotate` | Slot 0 UV rotation animation enable (`0x7100adb8f4:L141`). |
-| `0xA5B` | 1 | `uint8` | `tex0_uv_scale` | Slot 0 UV scale animation enable (`0x7100adb8f4:L159`). |
-| `0xA5C` | 1 | `uint8` | `tex0_wrap_mode` | Slot 0 texture wrap mode (0=Clamp, 1=Repeat, 2=Mirror; `0x7100adb8f4:L93`). |
-| `0xA68`–`0xA77` | 16 | `bytes` | `tex1_sampler_cfg` | Slot 1 sampler config & UV animation modes (`0x7100adb8f4:L101`). |
-| `0xA78`–`0xA87` | 16 | `bytes` | `tex2_sampler_cfg` | Slot 2 sampler config & UV animation modes (`0x7100adb8f4:L107`). |
-| **`0xA88`** | — | — | **Struct End** | End of fixed data struct (`0xA88` bytes total). |
+## 4. Chunk payload layouts
 
-## Pair-match triage (generated)
+The tables are the C# definitions in `src/PtclSharp/Layout/BotwLayouts.cs` (the single source of truth, checked against all 8,244 shipped emitters by `tests/PtclSharp.Tests/BotwCorpusTests.cs`). Sizes are payload sizes (node size minus the 0x20-byte header).
 
-Output of `tools/exe/pairmatch.py` on the TotK map: per paired field, reader-site counts and the best context-shape score (1.00 = same compiled shape). Supporting evidence only; not proof. Zero BotW sites means the field is only read via a bulk copy (GPU uniform block) or not at all, and needs manual work.
+| Chunk | Payload | Corpus | Notes |
+|:---|:---:|:---:|:---|
+| `EAES EAER EAET EAC0 EAC1 EATR EAPL EAA0 EAA1 EAOV EADV EASL EASS EAGV` | `0x0C + 0x10 * key_count` | 2,416 (EAGV: none) | Emitter lane: `enabled` byte `+0`, `loop` byte `+1`, `key_count` `+4`, keys `(x, y, z, time)` from `+0x0C`. BotW has no interpolation byte (always linear); `+2`, `+3`, `+8` unused. Evaluator `CalculateEmitterKeyFrameAnimation` (0x7100adf920). |
+| `FRND` | `0xD0` | 105 | Field random; Confirmed in `0x7100aece80` / `RandFunc` (0x7100aed4ac). Members `+0..+0x3B` as TotK; 8-key animation (`+0x3C`, 0x94 bytes). |
+| `FRN1` | `0xA4` | 3 | Constant `+0..+0xB`, `blank` `+0xC`, animation `+0x10`. Confirmed in 0x7100ae0e34. |
+| `FMAG` | `0xA8` | 18 | Magnet. Follow byte `+0`, axis bytes `+1..+3`, power `+4`, position `+8`, animation `+0x14`. Confirmed in 0x7100adfd38. |
+| `FSPN` | `0x134` | 117 | Spin (Confirmed, 0x7100ae0244): rotate `+0`, axis `+4`, outer `+8`, animations at `+0x0C` and `+0xA0`. |
+| `FCOL` | `0x14` | 0 | Collision (Confirmed in 0x7100ae065c); no shipped chunk. |
+| `FCOV` | `0xA8` | 196 | Convergence (Confirmed, 0x7100ae0994): type `+0`, position `+4`, ratio `+0x10`, animation `+0x14`. |
+| `FPAD` | `0xA4` | 10 | Position add: global byte `+0`, vector `+4`, animation `+0x10`. |
+| `FCLN` | `0x24` | 666 | Curl noise (Confirmed, 0x7100ad4c70); same members as TotK. |
+| `FCSF` | `0x44` | 3,159 | Custom field: type `+0`, 16 floats (the GPU buffer receives the first 8). |
+| `EP01` | `0x28` | 31 | Connection stripe: calc type `+0`, option `+8` (cross mesh), num divide `+0x10`, connection type `+0x14`, head/tail alpha `+0x18/+0x1C`; `+4`, `+0xC`, `+0x20`, `+0x24` unused. |
+| `EP02` | `0x2C` | 106 | Stripe: calc type, emitter follow, option `+8`, texturing `+0x0C`, num divide `+0x10`, num history `+0x14`, head/tail alpha `+0x1C/+0x20`, dir interpolate `+0x28`; `+0x18`, `+0x24` unused. |
+| `EP03` | `0x84` | 102 | Super stripe: option `+8`, texturing0..2 `+0x0C..+0x14`, num history `+0x18`, alphas `+0x20/+0x24`, num divide `+0x28`, history parameters TotK's shifted by `+0xC`, UV map type `+0x58`, scales `+0x5C/+0x60`; `+0x64..+0x83` unused. |
+| `EP04` | `0x50` | 13 | Area loop: same members as TotK; `+0x1C` is passed to the draw constants (always 0), `+0x4C` unused. |
+| `CSDP` | node size - 0x20 | 3,974 | Raw custom-shader uniform block (52 or 100 bytes in the corpus); copied verbatim to the GPU. |
+| `CADP` | varies | 1,063 | Custom-action data, opaque to the effect library. |
+| `CUDP` | varies | 0 | Custom user data; no shipped chunk. |
+| `PRIM` | `0x54` header + arrays | 14 | Same header as TotK. |
+| `G3NT` entry | `0x18` | 369 | Same chain word and attribute indices as TotK. |
 
-```
-emitter_name                           botw+0x10 totk+0x10 sites 1451/1072 best 1.00 botw@adc5a4 totk@df14
-color0_key_count                       botw+0x60 totk+0x80 sites 223/238 best 1.00 botw@ae5b74 totk@2139c
-alpha0_key_count                       botw+0x64 totk+0x84 sites 194/194 best 0.87 botw@ad9f7c totk@246f4
-color1_key_count                       botw+0x68 totk+0x88 sites 187/206 best 0.87 botw@aece70 totk@2e100
-alpha1_key_count                       botw+0x6C totk+0x8C sites 170/171 best 0.87 botw@ad4078 totk@1275c
-scale_key_count                        botw+0x70 totk+0x90 sites 148/179 best 0.87 botw@ad8c00 totk@7948
-track5_key_count                       botw+0x74 totk+0x94 sites 140/163 best 0.87 botw@ad8c00 totk@7948
-stationary_diff_fallback_selector      botw+0x744 totk+0xEC sites   2/ 52 best 0.40 botw@ad6984 totk@1ca8
-particle_color_rgb_scale               botw+0x3B0 totk+0x680 sites   8/  3 best 0.27 botw@aca4c8 totk@98bc
-kf_color0                              botw+0x3C0 totk+0x690 sites   3/  1 best 0.60 botw@adb96c totk@d958
-kf_alpha0                              botw+0x440 totk+0x710 sites   4/  1 best 1.00 botw@adb990 totk@d96c
-kf_color1                              botw+0x4C0 totk+0x790 sites   3/  1 best 0.73 botw@adb9a4 totk@d988
-kf_alpha1                              botw+0x540 totk+0x810 sites   4/  1 best 0.67 botw@adb9c8 totk@d99c
-kf_scale                               botw+0x600 totk+0x8D0 sites   3/  3 best 0.40 botw@adbf3c totk@27f94
-kf_track5                              botw+0x680 totk+0x950 sites   8/  4 best 0.33 botw@ad88dc totk@274e4
-sim_flags                              botw+0x748 totk+0xCA0 sites   0/  1 best 0.00
-particle_sort_mode_index               botw+0x749 totk+0xCA1 sites   0/  2 best 0.00
-emitter_calc_type                      botw+0x752 totk+0xCA2 sites  40/  3 best 0.47 botw@aca148 totk@1d70
-velocity_coord                         botw+0x74B totk+0xCA3 sites   0/ 38 best 0.00
-seed_source                            botw+0x757 totk+0xCA4 sites   2/  1 best 0.67 botw@ad59a4 totk@1df4
-fade_in_curve                          botw+0x75B totk+0xCA9 sites   4/  3 best 0.93 botw@ad795c totk@103b4
-fade_in_scale                          botw+0x75C totk+0xCAA sites   8/  3 best 0.93 botw@ad7964 totk@103bc
-fade_out_curve                         botw+0x755 totk+0xCAB sites   7/  3 best 0.93 botw@ad79c4 totk@1041c
-fade_out_scale                         botw+0x756 totk+0xCAC sites  12/  3 best 0.93 botw@ad79cc totk@10424
-fixed_seed                             botw+0x760 totk+0xCB0 sites   1/  1 best 0.80 botw@ad59ec totk@1e38
-fade_out_time                          botw+0x768 totk+0xCB8 sites   2/  2 best 1.00 botw@ad79d4 totk@1042c
-fade_in_time                           botw+0x76C totk+0xCBC sites   1/  1 best 1.00 botw@ad797c totk@103d4
-emitter_trans_xyz                      botw+0x770 totk+0xCC0 sites   4/  8 best 0.60 botw@ad61fc totk@2cd0
-emitter_trans_rnd                      botw+0x77C totk+0xCCC sites   2/  4 best 0.53 botw@ad3ef0 totk@f640
-emitter_rot_xyz                        botw+0x788 totk+0xCD8 sites   3/  3 best 0.67 botw@adc238 totk@da78
-emitter_rot_rnd                        botw+0x794 totk+0xCE4 sites   1/  1 best 0.33 botw@ad659c totk@3880
-emitter_scale_xyz                      botw+0x798 totk+0xCF0 sites   1/  3 best 0.47 botw@ad65a8 totk@2cb0
-emitter_color0_rgb                     botw+0x7A4 totk+0xCFC sites   4/  2 best 0.67 botw@ad61d0 totk@2cdc
-emitter_color0_alpha                   botw+0x7B0 totk+0xD08 sites   1/  2 best 0.80 botw@ad6210 totk@2d40
-emitter_color1_rgb                     botw+0x7B4 totk+0xD0C sites   1/  2 best 0.73 botw@ad6218 totk@2cf4
-emitter_color1_alpha                   botw+0x7C0 totk+0xD18 sites   1/  1 best 0.87 botw@ad622c totk@2d48
-child_pre_draw                         botw+0x7E1 totk+0xD39 sites   2/  1 best 0.60 botw@aca6e8 totk@a0b0
-emit_loop_mode                         botw+0x7F0 totk+0xD48 sites   8/  6 best 0.60 botw@ae4798 totk@1ef04
-gravity_coord                          botw+0x7F1 totk+0xD49 sites   2/  4 best 0.80 botw@adc8ac totk@e38c
-emit_dist_enable                       botw+0x7F2 totk+0xD4A sites   3/  3 best 0.53 botw@ad635c totk@e2f8
-emit_start_delay                       botw+0x7F4 totk+0xD4C sites   1/  2 best 0.53 botw@ad7418 totk@ff10
-child_emit_timing                      botw+0x7F8 totk+0xD50 sites   2/  2 best 0.47 botw@ad8228 totk@1118c
-emit_duration                          botw+0x7FC totk+0xD54 sites   5/  7 best 0.47 botw@ad7414 totk@ff14
-emit_rate                              botw+0x800 totk+0xD58 sites  13/  2 best 0.73 botw@adc1f0 totk@da1c
-emit_rate_random_percent               botw+0x804 totk+0xD5C sites   5/  2 best 0.47 botw@acdd94 totk@f790
-emit_interval                          botw+0x808 totk+0xD60 sites   6/  7 best 0.53 botw@ae70d0 totk@23110
-emit_interval_random                   botw+0x80C totk+0xD64 sites   1/  1 best 0.47 botw@ad69c0 totk@3e14
-gravity_xyz                            botw+0x818 totk+0xD70 sites   3/  1 best 0.80 botw@ae0f04 totk@18354
-shape_type                             botw+0x838 totk+0xD90 sites   8/  8 best 0.87 botw@ad64e0 totk@23190
-shape_angle_mode                       botw+0x839 totk+0xD91 sites   7/  4 best 0.60 botw@add250 totk@13b44
-shape_rot_mode                         botw+0x83A totk+0xD92 sites   6/  6 best 0.60 botw@ade8fc totk@13ebc
-shape_rot_variant                      botw+0x83E totk+0xD95 sites   4/  3 best 0.73 botw@ade104 totk@14564
-shape_angle_b                          botw+0x840 totk+0xD98 sites   6/  2 best 0.60 botw@add24c totk@13914
-shape_angle_c                          botw+0x844 totk+0xD9C sites   6/  3 best 0.73 botw@ade008 totk@14470
-shape_angle_d                          botw+0x848 totk+0xDA0 sites   5/  4 best 0.53 botw@add43c totk@13918
-shape_fill_ratio                       botw+0x850 totk+0xDA8 sites   3/  3 best 0.73 botw@add8b0 totk@13cb8
-line_center_bias                       botw+0x854 totk+0xDAC sites   2/  2 best 0.67 botw@adf2fc totk@15338
-line_length                            botw+0x858 totk+0xDB0 sites   2/  2 best 0.80 botw@adf344 totk@15390
-shape_radius_xyz                       botw+0x85C totk+0xDB4 sites  10/  8 best 0.73 botw@adf480 totk@154d8
-mesh_primitive_idx                     botw+0x878 totk+0xDD0 sites   1/  1 best 0.67 botw@ae3ed8 totk@1e674
-shape_divisions                        botw+0x880 totk+0xDD8 sites   4/  2 best 0.67 botw@ad652c totk@3700
-blend_target_enable                    botw+0x898 totk+0xDE8 sites   0/  1 best 0.00
-depth_stencil_mode_index               botw+0x89A totk+0xDEA sites   0/  1 best 0.00
-depth_sort_ascending                   botw+0x89B totk+0xDEB sites   1/  2 best 0.60 botw@acdcfc totk@480c
-blend_mode_index                       botw+0x89E totk+0xDEE sites   0/  1 best 0.00
-cull_mode_index                        botw+0x89F totk+0xDEF sites   0/  1 best 0.00
-emit_infinite_flag                     botw+0x8A8 totk+0xDF8 sites  14/  6 best 0.87 botw@ae477c totk@1eef0
-is_trimming_prim                       botw+0x8A9 totk+0xDF9 sites   9/  3 best 0.80 botw@ae3efc totk@1e6a4
-shader_mode_index_DFC                  botw+0x8AC totk+0xDFC sites  10/  3 best 0.73 botw@adcba0 totk@e778
-particle_lifespan                      botw+0x8B8 totk+0xE08 sites  16/  2 best 0.40 botw@ad6278 totk@dcd4
-particle_lifespan_random_percent       botw+0x8BC totk+0xE0C sites   4/  2 best 0.47 botw@adadc8 totk@1246c
-particle_attribute_w_random_amplitude  botw+0x8C0 totk+0xE10 sites   6/  1 best 0.53 botw@adad70 totk@12414
-g3d_primitive_idx                      botw+0x8C8 totk+0xE18 sites   6/  2 best 0.40 botw@adb800 totk@b6ec
-trim_primitive_idx                     botw+0x8D0 totk+0xE20 sites   5/  1 best 0.87 botw@ae3f04 totk@1e6ac
-loop_color0_enable                     botw+0x8D8 totk+0xE28 sites   3/  3 best 0.73 botw@ae1ab8 totk@18e60
-loop_alpha0_enable                     botw+0x8D9 totk+0xE29 sites   3/  3 best 0.80 botw@adc074 totk@d83c
-loop_color1_enable                     botw+0x8DA totk+0xE2A sites   3/  3 best 0.80 botw@adc0a4 totk@d870
-loop_alpha1_enable                     botw+0x8DB totk+0xE2B sites   3/  3 best 0.87 botw@adc0d4 totk@d89c
-loop_scale_enable                      botw+0x8DC totk+0xE2C sites   3/  2 best 0.87 botw@adc104 totk@d8d0
-loop_color0_random_phase               botw+0x8DD totk+0xE2D sites   3/  3 best 0.67 botw@adc05c totk@d828
-loop_alpha0_random_phase               botw+0x8DE totk+0xE2E sites   3/  3 best 0.80 botw@adc090 totk@d858
-loop_color1_random_phase               botw+0x8DF totk+0xE2F sites   3/  3 best 0.80 botw@adc0c0 totk@d888
-loop_alpha1_random_phase               botw+0x8E0 totk+0xE30 sites   2/  3 best 0.80 botw@adc0f0 totk@d8b8
-loop_scale_random_phase                botw+0x8E1 totk+0xE31 sites   2/  2 best 0.93 botw@adc120 totk@d8e8
-loop_scale_period_i32                  botw+0x8F4 totk+0xE3C sites   2/  2 best 0.93 botw@adc110 totk@d8d8
-shader_idx_normal                      botw+0x914 totk+0xE5C sites   1/  3 best 0.47 botw@adb83c totk@27644
-shader_idx_pass1                       botw+0x91C totk+0xE60 sites   1/  1 best 0.40 botw@adb850 totk@b878
-shader_idx_pass2                       botw+0x924 totk+0xE64 sites   1/  1 best 0.53 botw@adb874 totk@b8b4
-compute_shader0                        botw+0x918 totk+0xE68 sites   1/  1 best 0.40 botw@adb894 totk@b99c
-emission_direction_spread_degrees      botw+0x970 totk+0xF10 sites   1/  2 best 0.53 botw@ad62b4 totk@12930
-emission_tangent_amount                botw+0x974 totk+0xF14 sites   0/  3 best 0.00
-emission_direction_random_x            botw+0x978 totk+0xF18 sites   0/  1 best 0.00
-emission_direction_random_y            botw+0x97C totk+0xF1C sites   1/  1 best 0.33 botw@ada7a4 totk@13654
-emission_direction_random_z            botw+0x980 totk+0xF20 sites   2/  1 best 0.40 botw@acbbcc totk@13670
-initial_speed_random_percent           botw+0x984 totk+0xF24 sites   3/  1 best 0.53 botw@ada460 totk@12924
-emitter_motion_inherit_scale           botw+0x988 totk+0xF28 sites   2/  1 best 0.27 botw@adabdc totk@136a8
-emitter_motion_inherit_max             botw+0x98C totk+0xF2C sites   2/  1 best 0.27 botw@adac00 totk@136b0
-color0_mode                            botw+0x9A4 totk+0xF44 sites   3/  5 best 1.00 botw@ae1a9c totk@18e44
-color1_mode                            botw+0x9A5 totk+0xF45 sites   3/  6 best 1.00 botw@ae1ef8 totk@19774
-alpha0_mode                            botw+0x9A6 totk+0xF46 sites   2/  4 best 0.87 botw@adb984 totk@d960
-alpha1_mode                            botw+0x9A7 totk+0xF47 sites   2/  4 best 0.87 botw@ae1f70 totk@19830
-color0_const_rgb                       botw+0x9A8 totk+0xF48 sites   1/  3 best 0.60 botw@adb968 totk@d954
-alpha0_const                           botw+0x9B4 totk+0xF54 sites   1/  1 best 1.00 botw@adb98c totk@d968
-color1_const_rgb                       botw+0x9B8 totk+0xF58 sites   1/  3 best 0.80 botw@adb9a0 totk@d984
-alpha1_const                           botw+0x9C4 totk+0xF64 sites   1/  1 best 0.73 botw@adb9c4 totk@d998
-particle_scale_xyz                     botw+0x9C8 totk+0xF68 sites   1/  1 best 0.73 botw@ad6248 totk@2d0c
-particle_scale_rnd                     botw+0x9D4 totk+0xF74 sites   1/  2 best 0.53 botw@adac78 totk@12258
-waveform_mode_packed                   botw+0x9EF totk+0xF8F sites   4/  6 best 1.00 botw@ae1640 totk@189d0
-tex_slot0_guid                         botw+0x9F8 totk+0xF98 sites   4/  4 best 0.60 botw@adb90c totk@bc08
-tex_slot1_guid                         botw+0xA18 totk+0xFB0 sites   3/  4 best 0.60 botw@adb928 totk@bc30
-tex_slot2_guid                         botw+0xA38 totk+0xFC8 sites   4/  5 best 0.53 botw@adb944 totk@bc58
-tex0_mode_index                        botw+0xA58 totk+0x1028 sites   4/  0 best 0.00
-tex0_uv_scroll                         botw+0xA59 totk+0x1029 sites   1/  0 best 0.00
-tex0_uv_rotate                         botw+0xA5A totk+0x102A sites   1/  0 best 0.00
-tex0_uv_scale                          botw+0xA5B totk+0x102B sites   1/  0 best 0.00
-tex0_uv_domain_scale_mode              botw+0xA5C totk+0x102C sites   1/  0 best 0.00
-tex0_shader_flag0                      botw+0xA5D totk+0x102D sites   1/  0 best 0.00
-tex0_shader_flag1                      botw+0xA5E totk+0x102E sites   1/  0 best 0.00
-tex0_shader_flag2                      botw+0xA5F totk+0x102F sites   1/  0 best 0.00
-tex1_mode_index                        botw+0xA68 totk+0x1038 sites   4/  0 best 0.00
-tex1_uv_scroll                         botw+0xA69 totk+0x1039 sites   1/  0 best 0.00
-tex1_uv_rotate                         botw+0xA6A totk+0x103A sites   1/  0 best 0.00
-tex1_uv_scale                          botw+0xA6B totk+0x103B sites   1/  0 best 0.00
-tex1_uv_domain_scale_mode              botw+0xA6C totk+0x103C sites   1/  0 best 0.00
-tex1_shader_flag0                      botw+0xA6D totk+0x103D sites   1/  0 best 0.00
-tex1_shader_flag1                      botw+0xA6E totk+0x103E sites   1/  0 best 0.00
-tex1_shader_flag2                      botw+0xA6F totk+0x103F sites   1/  0 best 0.00
-tex2_mode_index                        botw+0xA78 totk+0x1048 sites   4/  0 best 0.00
-tex2_uv_scroll                         botw+0xA79 totk+0x1049 sites   1/  0 best 0.00
-tex2_uv_rotate                         botw+0xA7A totk+0x104A sites   1/  0 best 0.00
-tex2_uv_scale                          botw+0xA7B totk+0x104B sites   1/  0 best 0.00
-tex2_uv_domain_scale_mode              botw+0xA7C totk+0x104C sites   1/  0 best 0.00
-tex2_shader_flag0                      botw+0xA7D totk+0x104D sites   1/  0 best 0.00
-tex2_shader_flag1                      botw+0xA7E totk+0x104E sites   1/  0 best 0.00
-tex2_shader_flag2                      botw+0xA7F totk+0x104F sites   1/  0 best 0.00
-```
+Container facts (BotW): top-level node order `ESTA, GRTF, PRMA, G3PR, GRSN`; `ESET` is `0x60` bytes (name `+0x10`, `emitter_count` `+0x50`; `+0x58` and `+0x5C` unverified); `EMTR` data is aligned to `0x100`, with nested child EMTRs counted by the ESET.
+
