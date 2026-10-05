@@ -119,6 +119,14 @@ public sealed class GanonBeamMod
             BymlEdit.SetNumber(setting, "MaxActors", 1);
         });
 
+        // The rod code finds the shootable it fires through the RodParam's ShootableName, which must name the same actor as the
+        // ShooterParam creates. Left at PlayerBeam, nothing matches and every shot fails (the "shoot failed" sound).
+        string rod = "GameParameter/RodParam/Weapon_Sword_070.game__Object__RodParam.bgyml";
+        string renamedRod = rod.Replace("Weapon_Sword_070", "Weapon_Sword_070_" + Actor);
+        pack.Rename(rod, renamedRod);
+        pack.Edit(renamedRod, root =>
+            BymlEdit.SetString(root.AsMap["RodLevelParamLv1"], "ShootableName", $"Work/Actor/{Actor}.engine__actor__ActorParam.gyml"));
+
         WriteOut(Path.Combine("Pack", "Actor", sword + ".pack.zs"), _dictionaries.Compress(pack.ToSarc(), dict));
     }
 
