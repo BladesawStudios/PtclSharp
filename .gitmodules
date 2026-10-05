@@ -7,3 +7,9 @@
 [submodule "lib/Yaz0Sharp"]
 	path = lib/Yaz0Sharp
 	url = https://github.com/BladesawStudios/Yaz0Sharp
+[submodule "lib/BntxSharp"]
+	path = lib/BntxSharp
+	url = https://github.com/BladesawStudios/BntxSharp
+[submodule "lib/TxtgSharp"]
+	path = lib/TxtgSharp
+	url = https://github.com/BladesawStudios/TxtgSharp

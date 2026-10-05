@@ -175,3 +175,26 @@ silently.
 5. Add a validator that reports unsupported and unknown chunks before writing.
 6. Add the tree writer and same-version rebuild first, then cross-version writers.
 7. Expand the normalized model only as new offsets and payloads are confirmed.
+
+
+## Implemented (BotW to TotK)
+
+`PtclSharp.Writer` and `PtclSharp.Conversion` implement the raw-document and conversion layers for the direction BotW to TotK.
+
+- `VfxbDocument` is the editable raw document: the `ESTA` tree (`ESET`, `EMTR`, attribute chunks) as mutable nodes plus an opaque
+  tail (`GRTF`, `PRMA`, `G3PR`, `GRSN`). `ToBytes()` recomputes every size and offset; writing an unmodified document reproduces all
+  866 BotW and 1,592 TotK payloads byte for byte (`WriterCorpusTests`). `RecountChildren()` rebuilds the child-count words and the set
+  emitter counts. `PtclWriter` packs the result into a `.sesetlist` (Yaz0) or `.esetb.byml.zs` (BYML + Zstandard with the shared
+  dictionary), keeping unknown BYML keys.
+- `BotwToTotkConverter` maps emitter data field by field through the version layouts: same-name Confirmed/Paired fields are copied,
+  a small alias table handles renamed or narrowed fields (`depth_compare_func` -> `depth_stencil_mode_index`, the loop periods,
+  percent fields), GPU-only fields that line up with a TotK field are copied as "analogs", chunks are rebuilt in TotK layouts
+  (animation blocks gain the interpolation word, stripe chunks are re-laid out by name), and TotK-only fields start from the most
+  common value in the shipped TotK files (`TotkDefaults`).
+- What cannot be translated is reported, not guessed: BotW shaders (the caller picks a TotK shader through `ShaderBinding`, usually
+  copied from a donor TotK emitter, together with its `CSDP`), textures (`TextureMap`), meshes and G3D models, custom shader/action
+  chunks and fields TotK has no counterpart for. `ConversionReport.Summary()` aggregates the notes.
+- `tools/PtclConvert` runs the whole pipeline: `PtclConvert botw.sesetlist donor.esetb.byml.zs ZsDic.pack.zs out.esetb.byml.zs`.
+
+Not done yet: TotK to BotW, carrying `PRMA`/`G3PR` primitives across, texture archive handling, and any in-game verification of the
+converted files.

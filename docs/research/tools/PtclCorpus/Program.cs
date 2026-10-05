@@ -2,6 +2,7 @@
 // usage: PtclCorpus <command> <game> <root> <outPath>   (game: totk | botw)
 //   totk root = romfs root (contains Effect/*.esetb.byml.zs and Pack/ZsDic.pack.zs); botw root = ROM root (contains Effect/*.sesetlist)
 //   emtr   every EMTR data block (0x10C8 bytes for TotK, 0xA88 for BotW): [i32 len][64B file name][u32 node size][data]
+//   eset   every ESET data block (0x60 bytes for BotW, 0xB4 for TotK), same record format as emtr
 //   attrs  <romfs> <out.bin>   every non-ESTA/ESET/EMTR node: [4B kind][4B parent kind][i32 len][node bytes]
 //   bnsh   <romfs> <outDir>    every distinct BNSH inside GRSN/GRSR, named <sha1>.bnsh (+ .src with the source file)
 // The shared Zstd dictionary (ID 1) is read from <romfs>/Pack/ZsDic.pack.zs.
@@ -61,6 +62,58 @@ switch (cmd)
             foreach (var r in v.Roots) W(r);
         }
         Console.WriteLine($"emtr {n}");
+        break;
+    }
+    case "tree":
+    {
+        // usage: PtclCorpus tree <game> <root> <fileName>  -> prints the node tree with offsets, sizes and data ranges
+        foreach (var (name, v) in Load())
+        {
+            if (name != outPath) continue;
+            Console.WriteLine($"{name} file={v.Data.Length:X} firstBlock={v.Header.FirstBlockOffset:X}");
+            void P(VfxbNode n, int ind, string tag)
+            {
+                Console.WriteLine($"{new string(' ', ind)}{tag}{n.Kind} @{n.Offset:X} size={n.Size:X} child={n.ChildRelativeOffset:X} sib={n.SiblingRelativeOffset:X} attr={n.AttributeRelativeOffset:X} data={(n.DataOffset is int d ? d.ToString("X") : "-")} cnt={n.DeclaredChildCount}");
+                foreach (var a in n.Attributes) P(a, ind + 2, "A:");
+                foreach (var c in n.Children) P(c, ind + 2, "C:");
+            }
+            foreach (var r in v.Roots) P(r, 0, "");
+        }
+        break;
+    }
+    case "tex":
+    {
+        // usage: PtclCorpus tex <game> <root> <fileName> : texture list (TotK) and per-emitter texture GUIDs
+        foreach (var f in Directory.GetFiles(Path.Combine(romfs, "Effect"), botw ? "*.sesetlist" : "*.esetb.byml.zs"))
+        {
+            if (Path.GetFileName(f) != outPath) continue;
+            var ptcl = botw ? PtclFile.ReadSesetlist(File.ReadAllBytes(f)) : PtclFile.ReadEsetb(File.ReadAllBytes(f), dict);
+            foreach (var t in ptcl.Textures) Console.WriteLine($"texture {t.Name} guid={t.Guid:X8}");
+            foreach (var set in ptcl.Vfxb.EmitterSets)
+                foreach (var e in set.Emitters)
+                    Console.WriteLine($"{set.Name}/{e.Name}: " + string.Join(" ", e.TextureSamplerGuids.Select(g => g is ulong u ? u.ToString("X16") : "-")));
+        }
+        break;
+    }
+    case "eset":
+    {
+        int esetSize = botw ? 0x60 : 0xB4;
+        using var bw = new BinaryWriter(File.Create(outPath));
+        int n = 0;
+        foreach (var (name, v) in Load())
+        {
+            void W(VfxbNode node)
+            {
+                if (node.Kind == "ESET" && node.DataOffset is int o)
+                {
+                    int len = Math.Min(esetSize, v.Data.Length - o);
+                    bw.Write(len); bw.Write(Encoding.ASCII.GetBytes(name.PadRight(64)[..64])); bw.Write(node.Size); bw.Write(v.Data, o, len); n++;
+                }
+                foreach (var c in node.Children) W(c);
+            }
+            foreach (var r in v.Roots) W(r);
+        }
+        Console.WriteLine($"eset {n}");
         break;
     }
     case "attrs":
