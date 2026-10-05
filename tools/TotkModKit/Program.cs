@@ -61,9 +61,9 @@ switch (command)
     }
     case "build-ganon-beam":
     {
-        // TotkModKit build-ganon-beam --romfs <vanilla> --out <mod romfs> --xlink <xlink.exe> --effect <GanonBeastBeam.esetb.byml.zs> [--textures <TexToGo dir>]
+        // TotkModKit build-ganon-beam --romfs <vanilla> --out <mod romfs> --xlink <xlink.exe> --effect <GanonBeastBeam.esetb.byml.zs> [--textures <TexToGo dir>] [--fire-effect <file>]
         var mod = new GanonBeamMod(romfs, Option("--out") ?? throw new ArgumentException("--out"), Option("--xlink") ?? throw new ArgumentException("--xlink"), Option("--python") ?? "python", Option("--elink-user"));
-        mod.Build(Option("--effect") ?? throw new ArgumentException("--effect"), Option("--textures"));
+        mod.Build(Option("--effect") ?? throw new ArgumentException("--effect"), Option("--textures"), Option("--fire-effect"));
         break;
     }
     default:

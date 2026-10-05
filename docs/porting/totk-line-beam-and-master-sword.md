@@ -281,3 +281,17 @@ pointers constantly, so that proves nothing, and the other candidate spaces were
 are out-of-line slow paths, reachable in principle; the zero padding after `.text` is not patched by Ryujinx and crashed when jumped to). The mod
 ships without an executable patch: no range growth and the stock occlusion test. `scripts/make_exefs_patch.py` is kept for reference with a warning.
 Range growth wants a framework that hooks functions with memory of its own (the user has offered one), where the same logic is a few lines of code.
+
+### 8.8 A standalone pink fire field (cloned from the Drake beam's)
+
+`GanonBeastFireField` is a clone of `ExpandFireField_Drake`, the chemical fire field the Drake burst beam shoots where it lands (a physics volume that
+ignites and damages what is inside; its `Shooter` setting and the AI node `ExecuteShooterPrepareAndShootInShapeFormation` with `Center = Actor.Pos`
+are how the vanilla burst beam spawns it). The build (`TotkModKit build-ganon-beam ... --fire-effect <file>`) adds: the actor pack (donor files
+renamed, `ELinkParam.UserName`), ActorInfo/GameActorInfo rows, an ELink2 user whose `Chemical_Fire` asset points at the new set `GanonBeast_FireField`,
+and a cloned effect file `GanonBeastFireField` registered in EffectFileInfo. The effect (`tools/PtclTint/make_ganon_fire_effect.sh`) is the donor's fire
+set (`Fire_Outside`, `Fire_Spark`, `Fire_PointLight`) with `--paint` pink: it keeps each colour's brightness and replaces the hue. Alternatives: the
+`ExpandFireField_Chuchu` file has a bigger explosion set (`Smoke`, `ShockWave`, `Star`, `LightBurst`, `Ball`, `Hinoko`, `Fire_Spread`, `PointLight`).
+
+Nothing spawns it yet. The vanilla spawn point is the shooter's own position, and our Toggle beam's actor sits at the muzzle, so spawning at the
+impact needs an AI that casts a ray (`QueryPhysicsCastRayEntity`: `StartPos`/`EndPos` in, `HitPos`/`IsHit` out) and feeds `HitPos` to the shoot node's
+`Center`; the beam actor would also need a `ShooterParam`. That graph is not built.

@@ -20,7 +20,7 @@ public sealed class GanonBeamMod
     public const double BeamRange = 300.0;
     public const double BeamWidth = 2.5;        // BeamRadiusScaleDisplay: multiplies the width of every body emitter (the effect is fed (w, 1, w)); BotW fed 1.0 to emitters authored for it, our Drake-based body wants more
     public const int InstanceHeapSize = 56528;  // the donor has no AI; the Drake fire burst beam, which has one, needs this much
-    public const double BeamRadiusScale = 0.500123; // 0.5 plus a marker: the exefs patch (scripts/make_exefs_patch.py) grows the range only for a controller with exactly this value // TotK's Drake beam uses 2.5; BotW's capsule radius was 0.1
+    public const double BeamRadiusScale = 0.5;  // the damage capsule radius multiplier (the donor uses 2.5; BotW's capsule radius was 0.1)
     public const double BaseAttackPower = 40;   // per hit; with DamageInterval 5 (6 hits a second at 30 fps) that is ~240 a second. Vanilla per hit: sword beam 10, Gerudo beam 16, Drake 30 (hit every 30), Kohga 32
 
     private readonly string _vanilla;
@@ -49,16 +49,43 @@ public sealed class GanonBeamMod
             throw new InvalidOperationException("The output folder must not be inside the vanilla romfs.");
     }
 
-    public void Build(string effectFile, string? texturesDir)
+    // The fire field: a standalone, destructive fire/explosion actor, cloned from the Drake beam's own ExpandFireField_Drake (a chemical
+    // field that ignites and damages what is inside it) with its effect file cloned and tinted pink. Nothing spawns it yet; it is a
+    // separate actor so it can be shot, spawned by AI or placed like any vanilla one.
+    public const string FireDonor = "ExpandFireField_Drake";
+    public const string FireActor = "GanonBeastFireField";
+    public const string FireEffectFile = "GanonBeastFireField";
+    public const string FireSet = "GanonBeast_FireField";
+
+    public void Build(string effectFile, string? texturesDir, string? fireEffectFile = null)
     {
         BuildActorPack();
         BuildSwordPack("Weapon_Sword_070");
         BuildSwordPack("Weapon_Sword_077");
-        BuildRsdb("ActorInfo", row => row, cloneFrom: Donor);
-        BuildRsdb("GameActorInfo", row => row, cloneFrom: Donor);
-        BuildEffectFileInfo();
-        BuildElink();
-        CopyEffect(effectFile, texturesDir);
+        if (fireEffectFile is not null) BuildFireFieldPack();
+        foreach (string table in new[] { "ActorInfo", "GameActorInfo" })
+        {
+            var rows = new List<(string Actor, string From, string ELinkUser, int? Heap)> { (Actor, Donor, _elinkUser, InstanceHeapSize) };
+            if (fireEffectFile is not null) rows.Add((FireActor, FireDonor, FireActor, null));
+            BuildRsdb(table, rows);
+        }
+        BuildEffectFileInfo(fireEffectFile is null ? [EffectFile] : [EffectFile, FireEffectFile]);
+        BuildElink(fireEffectFile is not null);
+        CopyEffect(EffectFile, effectFile, texturesDir);
+        if (fireEffectFile is not null) CopyEffect(FireEffectFile, fireEffectFile, null);
+    }
+
+    private void BuildFireFieldPack()
+    {
+        Console.WriteLine($"actor pack {FireActor} (copy of {FireDonor})");
+        var pack = new PackEdit(ReadVanillaPack(FireDonor, out uint dict));
+        foreach (string name in pack.Names.Where(n => n.Contains(FireDonor, StringComparison.Ordinal)).ToList())
+        {
+            if (name.StartsWith("Component/SLink/", StringComparison.Ordinal)) continue; // the sound database has no user for the new actor
+            pack.Rename(name, name.Replace(FireDonor, FireActor));
+        }
+        pack.Edit(pack.Find("Component/ELink/"), root => BymlEdit.SetString(root, "UserName", FireActor));
+        WriteOut(Path.Combine("Pack", "Actor", FireActor + ".pack.zs"), _dictionaries.Compress(pack.ToSarc(), dict));
     }
 
     // --- actor pack ---------------------------------------------------------------------------------------------------------------
@@ -188,50 +215,56 @@ public sealed class GanonBeamMod
 
     // --- RSDB ---------------------------------------------------------------------------------------------------------------------
 
-    private void BuildRsdb(string table, Func<Byml, Byml> unused, string cloneFrom)
+    private void BuildRsdb(string table, IReadOnlyList<(string Actor, string From, string ELinkUser, int? Heap)> news)
     {
-        Console.WriteLine($"RSDB {table}: row {Actor} copied from {cloneFrom}");
         string file = $"{table}.Product.121.rstbl.byml.zs";
         byte[] data = _dictionaries.Decompress(File.ReadAllBytes(Path.Combine(_vanilla, "RSDB", file)), out uint dict);
         BymlFile bymlFile = BymlFile.FromBinary(data);
         IList<Byml> rows = bymlFile.Root.AsArray;
 
-        if (rows.Any(r => r.AsMap["__RowId"].AsString() == Actor)) throw new InvalidOperationException($"{table} already has a row named {Actor}.");
-        Byml source = BymlFile.FromBinary(data).Root.AsArray.First(r => r.AsMap["__RowId"].AsString() == cloneFrom); // an independent copy
-        IDictionary<string, Byml> fields = source.AsMap;
-        fields["__RowId"] = Byml.From(Actor);
-        if (fields.ContainsKey("ELinkUserName")) fields["ELinkUserName"] = Byml.From(_elinkUser);
-        if (fields.ContainsKey("ActorName")) fields["ActorName"] = Byml.From(Actor);
-        if (fields.ContainsKey("InstanceHeapSize")) BymlEdit.SetNumber(source, "InstanceHeapSize", InstanceHeapSize);
+        foreach ((string actor, string cloneFrom, string elinkUser, int? heap) in news)
+        {
+            Console.WriteLine($"RSDB {table}: row {actor} copied from {cloneFrom}");
+            if (rows.Any(r => r.AsMap["__RowId"].AsString() == actor)) throw new InvalidOperationException($"{table} already has a row named {actor}.");
+            Byml source = BymlFile.FromBinary(data).Root.AsArray.First(r => r.AsMap["__RowId"].AsString() == cloneFrom); // an independent copy
+            IDictionary<string, Byml> fields = source.AsMap;
+            fields["__RowId"] = Byml.From(actor);
+            if (fields.ContainsKey("ELinkUserName")) fields["ELinkUserName"] = Byml.From(elinkUser);
+            if (fields.ContainsKey("ActorName")) fields["ActorName"] = Byml.From(actor);
+            if (heap is int size && fields.ContainsKey("InstanceHeapSize")) BymlEdit.SetNumber(source, "InstanceHeapSize", size);
 
-        // Keep the table sorted the way it ships.
-        int at = 0;
-        while (at < rows.Count && string.CompareOrdinal(rows[at].AsMap["__RowId"].AsString(), Actor) < 0) at++;
-        rows.Insert(at, source);
+            // Keep the table sorted the way it ships.
+            int at = 0;
+            while (at < rows.Count && string.CompareOrdinal(rows[at].AsMap["__RowId"].AsString(), actor) < 0) at++;
+            rows.Insert(at, source);
+        }
         WriteOut(Path.Combine("RSDB", file), _dictionaries.Compress(bymlFile.Write(), dict));
     }
 
     // --- Effect registry and effect files -----------------------------------------------------------------------------------------
 
-    private void BuildEffectFileInfo()
+    private void BuildEffectFileInfo(IReadOnlyList<string> effectFiles)
     {
-        Console.WriteLine("EffectFileInfo: register the effect file");
+        Console.WriteLine("EffectFileInfo: register the effect files");
         string file = "EffectFileInfo.Product.110.Nin_NX_NVN.byml.zs";
         byte[] data = _dictionaries.Decompress(File.ReadAllBytes(Path.Combine(_vanilla, "Effect", file)), out uint dict);
         BymlFile bymlFile = BymlFile.FromBinary(data);
 
-        bymlFile.Root.AsMap["BinaryDict"].AsMap[EffectFile] = Byml.From(EffectFile);
-        IList<Byml> list = bymlFile.Root.AsMap["EsetbList"].AsArray;
-        if (list.Any(e => e.AsString() == EffectFile)) throw new InvalidOperationException("EsetbList already lists the effect file.");
-        int at = 0;
-        while (at < list.Count && string.CompareOrdinal(list[at].AsString(), EffectFile) < 0) at++;
-        list.Insert(at, Byml.From(EffectFile));
+        foreach (string name in effectFiles)
+        {
+            bymlFile.Root.AsMap["BinaryDict"].AsMap[name] = Byml.From(name);
+            IList<Byml> list = bymlFile.Root.AsMap["EsetbList"].AsArray;
+            if (list.Any(e => e.AsString() == name)) throw new InvalidOperationException($"EsetbList already lists {name}.");
+            int at = 0;
+            while (at < list.Count && string.CompareOrdinal(list[at].AsString(), name) < 0) at++;
+            list.Insert(at, Byml.From(name));
+        }
         WriteOut(Path.Combine("Effect", file), _dictionaries.Compress(bymlFile.Write(), dict));
     }
 
-    private void CopyEffect(string effectFile, string? texturesDir)
+    private void CopyEffect(string name, string effectFile, string? texturesDir)
     {
-        WriteOut(Path.Combine("Effect", EffectFile + ".Nin_NX_NVN.esetb.byml.zs"), File.ReadAllBytes(effectFile));
+        WriteOut(Path.Combine("Effect", name + ".Nin_NX_NVN.esetb.byml.zs"), File.ReadAllBytes(effectFile));
         if (texturesDir is null) return;
         foreach (string txtg in Directory.EnumerateFiles(texturesDir, "*.txtg"))
             WriteOut(Path.Combine("TexToGo", Path.GetFileName(txtg)), File.ReadAllBytes(txtg));
@@ -239,9 +272,9 @@ public sealed class GanonBeamMod
 
     // --- ELink2 ---------------------------------------------------------------------------------------------------------------------
 
-    private void BuildElink()
+    private void BuildElink(bool withFireField)
     {
-        Console.WriteLine("ELink2: add the GanonBeastBeam user");
+        Console.WriteLine("ELink2: add the GanonBeastBeam user" + (withFireField ? " and the GanonBeastFireField user" : ""));
         string file = "elink2.Product.110.belnk.zs";
         byte[] bin = _dictionaries.Decompress(File.ReadAllBytes(Path.Combine(_vanilla, "ELink2", file)), out uint dict);
 
@@ -269,7 +302,21 @@ public sealed class GanonBeamMod
             block = SetAsset(block, "Beam_Top", HitSet);
             block = block.Replace("          Scale = 1.875\n", "", StringComparison.Ordinal); // the donor's hit scale; BotW's Beam_Top has none
 
-            File.WriteAllText(textPath, text.Insert(end, block));
+            text = text.Insert(end, block);
+
+            if (withFireField)
+            {
+                // The fire field's user: a copy of the donor's with its fire effect pointed at the cloned (pink) set.
+                int fs = text.IndexOf($"\n  {FireDonor} {{\n", StringComparison.Ordinal);
+                if (fs < 0) throw new InvalidOperationException($"ELink2 user {FireDonor} not found.");
+                fs++;
+                int fe = text.IndexOf("\n  }\n", fs, StringComparison.Ordinal) + "\n  }\n".Length;
+                string fire = text[fs..fe].Replace($"  {FireDonor} {{", $"  {FireActor} {{", StringComparison.Ordinal);
+                fire = SetAsset(fire, "Chemical_Fire", FireSet);
+                text = text.Insert(fe, fire);
+            }
+
+            File.WriteAllText(textPath, text);
             RunXlink(textPath, newBin);
             WriteOut(Path.Combine("ELink2", file), _dictionaries.Compress(File.ReadAllBytes(newBin), dict));
         }
