@@ -3,7 +3,7 @@
 //   PtclTint <in.esetb.byml.zs> <ZsDic.pack.zs> <out.esetb.byml.zs> [--rename-set from=to ...] [--recolor <gMul>,<bMul>,<swap 0|1>]
 //                            [--width <factor>] [--only-set <name> ...]
 //                            [--botw <file.sesetlist> --keys <emitter>=<BotW emitter> ...]
-//                            [--paint <emitter>=r,g,b] [--gain <emitter>=f] [--scale <emitter>=x,y,z] [--drop <emitter>]
+//                            [--peak <emitter>=P] [--paint <emitter>=r,g,b] [--gain <emitter>=f] [--scale <emitter>=x,y,z] [--drop <emitter>]
 //
 // --recolor gMul,bMul,swap: for every colour (the colour key frames, the constant colours and the emitter colours) the new green is
 //   gMul * old green and the new blue is bMul * old blue; with swap=1 the old green and blue trade places first. Fire orange
@@ -12,6 +12,8 @@
 // --keys: copies the colour, alpha and scale animation of a BotW emitter (found by name in --botw's file) onto the emitter: the key counts, key
 //   tables, colour modes, constants, the HDR scale (particle_color_rgb_scale) and the particle lifetime, since the keys are timed by it.
 //   Applied before --paint / --gain / --scale, which can then adjust the result.
+// --peak: rescales particle_color_rgb_scale so the emitter's brightest colour channel (over its colour keys, or its constant colour when
+//   color0_mode is not 2) times the scale equals P. Colours far above ~30 clip to flat white, and the bloom then glows white, not in the hue.
 // --paint: replaces the hue of one emitter's colours with r,g,b, keeping each colour's brightness (its largest channel).
 // --gain: multiplies the emitter's particle_color_rgb_scale (HDR intensity: this is what feeds the bloom).
 // --scale: multiplies the emitter's particle_scale_xyz by x,y,z. --drop: removes the emitter. (Emitter names are the input file's.)
@@ -33,6 +35,7 @@ var gains = new Dictionary<string, float>(StringComparer.Ordinal);
 var scales = new Dictionary<string, float[]>(StringComparer.Ordinal);
 string? botwPath = null;
 var keys = new Dictionary<string, string>(StringComparer.Ordinal);
+var peaks = new Dictionary<string, float>(StringComparer.Ordinal);
 var drops = new HashSet<string>(StringComparer.Ordinal);
 float[] Floats(string text) => text.Split(',').Select(t => float.Parse(t, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
 float gMul = 1, bMul = 1, width = 1;
@@ -46,6 +49,7 @@ for (int i = 3; i < args.Length; i++)
     else if (args[i] == "--scale" && args[++i].Split('=', 2) is { Length: 2 } c) scales[c[0]] = Floats(c[1]);
     else if (args[i] == "--botw") botwPath = args[++i];
     else if (args[i] == "--keys" && args[++i].Split('=', 2) is { Length: 2 } d) keys[d[0]] = d[1];
+    else if (args[i] == "--peak" && args[++i].Split('=', 2) is { Length: 2 } pk) peaks[pk[0]] = Floats(pk[1])[0];
     else if (args[i] == "--drop") drops.Add(args[++i]);
     else if (args[i] == "--width") width = float.Parse(args[++i], System.Globalization.CultureInfo.InvariantCulture);
     else if (args[i] == "--recolor")
@@ -164,6 +168,20 @@ foreach (VfxbTreeNode set in document.Sets)
         {
             Paint(view, hue, "kf_color0", 32, 4); Paint(view, hue, "kf_color1", 32, 4);
             foreach (string field in new[] { "color0_const_rgb", "color1_const_rgb", "emitter_color0_rgb", "emitter_color1_rgb" }) Paint(view, hue, field, 3, 3);
+        }
+        if (peaks.TryGetValue(emitter, out float peak))
+        {
+            float best = 0;
+            if (view.GetByte("color0_mode") == 2)
+            {
+                int count = (int)view.GetUInt32("color0_key_count");
+                for (int k = 0; k < count && k < 8; k++)
+                    for (int j = 0; j < 3; j++) best = Math.Max(best, view.GetSingle("kf_color0", (k * 4) + j));
+            }
+            else for (int j = 0; j < 3; j++) best = Math.Max(best, view.GetSingle("color0_const_rgb", j));
+            float current = best * view.GetSingle("particle_color_rgb_scale");
+            if (current > 0) view.SetSingle("particle_color_rgb_scale", view.GetSingle("particle_color_rgb_scale") * peak / current);
+            Console.WriteLine($"  {emitter}: peak {current:G5} -> {peak}");
         }
         if (gains.TryGetValue(emitter, out float gain)) view.SetSingle("particle_color_rgb_scale", view.GetSingle("particle_color_rgb_scale") * gain);
         if (scales.TryGetValue(emitter, out float[]? by))
