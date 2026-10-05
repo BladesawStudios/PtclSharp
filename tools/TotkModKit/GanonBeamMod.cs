@@ -21,7 +21,7 @@ public sealed class GanonBeamMod
     public const double BeamWidth = 2.5;        // BeamRadiusScaleDisplay: multiplies the width of every body emitter (the effect is fed (w, 1, w)); BotW fed 1.0 to emitters authored for it, our Drake-based body wants more
     public const int InstanceHeapSize = 56528;  // the donor has no AI; the Drake fire burst beam, which has one, needs this much
     public const double BeamRadiusScale = 0.5;  // the damage capsule radius multiplier (the donor uses 2.5; BotW's capsule radius was 0.1)
-    public const double BaseAttackPower = 40;   // per hit; with DamageInterval 5 (6 hits a second at 30 fps) that is ~240 a second. Vanilla per hit: sword beam 10, Gerudo beam 16, Drake 30 (hit every 30), Kohga 32
+    public const double BaseAttackPower = 1000; // per hit, every DamageInterval (5 frames). Vanilla per hit: sword beam 10, Gerudo beam 16, Drake 30, Kohga 32
 
     private readonly string _vanilla;
     private readonly string _out;
@@ -30,7 +30,7 @@ public sealed class GanonBeamMod
     private readonly string _python;
 
     /// <summary>How long a shot lasts, in 30 fps frames (the unit of the AI's VFR counter).</summary>
-    public const int BeamFrames = 90;
+    public const int BeamFrames = 45;
     public const int DamageInterval = 5;        // frames between hits (the donor's is 30); the beam re-hits whatever it overlaps this often
 
     private readonly string _elinkUser;
