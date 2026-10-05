@@ -208,3 +208,16 @@ inputs, parameter reads), not what a shader does, so any shader with the right i
 texture-slot pattern for plain emitters. Body set overrides used: `Emitter1_Copy2=Ring_In_00@908`, `Emitter1_Copy2_Copy2=Ring_Out_00@909`,
 `Light_Long=light_Yellow@79`, `Dot=ZonauAura_A_00@419`. The hit sets still use automatic donors (several are "custom shader the
 BotW side cannot carry", e.g. `Ripple`, `YBill`, `Smoke`).
+
+### 8.3 Fourth test: the beam is almost never drawn (an executable patch)
+
+The body effect showed for ~2 frames, rarely. Cause, from the Toggle update (`0x710174694c`): its first call, `0x7101743ea8`, returns
+true when a ray from the owner (the shooter's position, resolved through the Attachment parent for attached actors) to the beam
+actor's position hits anything. The ray sets no group exclusion, so a sword in Link's hand makes it hit Link. On true the update kills
+the `Tail` handle (`+0x6c`), fades the hit handle (`+0x7c`), sets `+0xcf` and returns; when it is false again `+0xcf` makes it
+re-emit `Tail` (`0x7101746830`). A Drake has the ray clear of its own body, so vanilla beams never trip it.
+
+There is no data switch for it (the only other condition is an invalid shooter link, which the sword always has). Patch
+(`tools/TotkModKit/patches/GanonBeastBeam_NoOcclusionKill.pchtxt`, TotK 1.2.1 build id `9B4E4365...F850`): the `bl 0x7101743ea8` at
+`0x7101746984` (text offset `0x1746984`) becomes `mov w0, #0`. Only the Toggle update's call is changed; the other caller
+(`FUN_7101744fe8`) is untouched. Built output is in `converted/GanonBeastMod/exefs/` (also an IPS32 for Atmosphere-style loaders).
