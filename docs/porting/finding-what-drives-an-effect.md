@@ -33,6 +33,20 @@ Worked example: the Dark Beast Ganon beam (`GanonBeastBeam`). Addresses are for 
    effect-specific data.
 5. **Decide per piece:** data (port it), generic engine data (nothing to do), effect-specific code (patch).
 
+### Reading ELink2 databases with xlink2
+
+[dt-12345/xlink2](https://github.com/dt-12345/xlink2) (C++26, build with gcc 16: `cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+-DCMAKE_CXX_COMPILER=g++`, after cloning `fmtlib/fmt` into `lib/fmt`) turns a database into readable text:
+
+```sh
+xlink -i ELink2DB.bin -o botw_elink.txt -g UKing      # BotW: Pack/Bootup.pack > ELink2/ELink2DB.sbelnk, Yaz0-decompressed
+xlink -i elink2.bin   -o totk_elink.txt               # TotK: ELink2/elink2.Product.110.belnk.zs, Zstandard with the ZsDic dictionary
+```
+
+A **user** (named like the actor effect, for example `GanonBeastBeam`) has *asset call tables* keyed by the name game code or an
+`AlwaysTriggers` entry requests; each ends in an `Asset` whose `RuntimeAssetName` is the **emitter set name** inside the effect file,
+plus per-call overrides (`Scale`, `valDampDist`, `valDrawPriority`...). This is where set names come from.
+
 ## 2. Findings for the Dark Beast Ganon beam (BotW)
 
 - The beam is an **actor** (`GanonBeastBeam`) whose AI runs `uking::action::GanonBeastBeamMove` (`0x7100175d1c`), which derives from
@@ -41,10 +55,18 @@ Worked example: the Dark Beast Ganon beam (`GanonBeastBeam`). Addresses are for 
   `RestDistTime`, `RestDistTimeAdd`, `RestNumMax`, `RestDistLimit`, `RestDistMinLimit`, `RestDistInterval`), and send the line as an
   actor message under a spinlock (`FUN_710070dcc0`; the receiving AI is `uking::ai::SimpleLineBeam::handleMessage_`,
   `0x710056f35c`, message ids `0x8000038` and `0x8000039`). Nothing in them touches shaders or emitters directly.
-- The beam's **effect** is data: `ELink2DB.sbelnk` has a `GanonBeastBeam` user that points at the sets `GanonBeast_Beam`,
-  `GanonBeast_BeamHit` and `GanonBeast_Beam_BarrierHit` of `Effect/GanonBeastBeam.sesetlist`. How the beam's length and
-  orientation reach the effect (ELink2 properties versus an actor-attached transform) is **not yet established**; the ELink2 entry
-  has to be parsed to answer it.
+- The beam's **effect** is data. BotW user `GanonBeastBeam` (ELink2 text line ~103927) has three call tables, none with parameters
+  except the last: `Tail` -> set `GanonBeast_Beam`, `Barrier` -> `GanonBeast_Beam_BarrierHit`, `Beam_Top` -> `GanonBeast_BeamHit`
+  (`valDampDist = 1000.0`, `valDrawPriority = 129`, all `BitFlag = 0b10`). No scale, no length, no per-frame property: the beam
+  has no effect parameters at all beyond the actor's own transform. The names ("Tail", "Beam_Top") suggest a moving head that
+  leaves a stripe trail, which the actor's movement (`GanonBeastBeamMove`) produces.
+- TotK user `PlayerBeam` (the Master Sword beam) is the analogue: an `AlwaysTriggers` entry starts call table `Body` -> set
+  `Obj_MasterBeam` (`Scale = 3.0`, `valAfterFadeSpeed = 0.9`), plus `MasterBeamDisappear` -> `Obj_MasterBeam_Disappear` (`Scale =
+  4.0`, `valCombo = 2`, `valPower = 0.05`, `valDampDist = 100`) and `MasterBeamHit` -> `MasterBeam_Disappear`. Role mapping used
+  for the test file: Tail -> Body, Barrier -> MasterBeamDisappear, Beam_Top -> MasterBeamHit.
+- So replacing `PlayerBeam` with the converted effect gives the Ganon beast beam visuals riding on the Master Sword beam
+  projectile. What is **not** ported is the BotW actor behaviour: the beam as a line from the Guardian-style source to the hit
+  point with rest actors, terrain following and damage along it.
 - The three engine callbacks that fill the custom-shader uniform buffer (`FUN_71011b9484`, `FUN_71012676bc`, `FUN_71011b37e4`) are
   the generic `RenderStateSet_Basic` / `Basic2` callbacks: they copy lights, shadows, fog and view data into a 0x240 / 0x60 / 0x270
   byte buffer for **every** effect, selected by flag bits of the emitter's shader (`EmitterResource + 0x930`). They are not
@@ -55,8 +77,8 @@ Worked example: the Dark Beast Ganon beam (`GanonBeastBeam`). Addresses are for 
 
 ## 3. What is still open (next steps, in order)
 
-1. Parse the `GanonBeastBeam` entry of `ELink2DB.sbelnk` (BotW) and the `PlayerBeam` / `Obj_MasterBeam` entry of the TotK database;
-   compare the properties they pass. This decides whether the mod is data only.
+1. ~~Parse the ELink2 entries~~ (done, section 2): the visuals need no per-frame properties. Decide with the tester what behaviour
+   is actually missing in game (length, tracking, damage line, spawn rules).
 2. Recover the custom shader block: extend `PtclShaderDb` to record which bytes of `sysCustomShaderUniformBlock1` each custom
    program reads and how (scale, colour, scroll), then map the BotW beam's `CSDP` values onto a TotK program.
 3. Only for behaviour that is still missing: write the executable patch (a TotK hook that supplies the dynamic value, found the
