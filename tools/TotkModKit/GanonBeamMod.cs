@@ -32,8 +32,13 @@ public sealed class GanonBeamMod
     /// <summary>How long a shot lasts, in 30 fps frames (the unit of the AI's VFR counter).</summary>
     public const int BeamFrames = 120;
 
-    public GanonBeamMod(string vanillaRomfs, string outRomfs, string xlinkExe, string python = "python")
+    private readonly string _elinkUser;
+
+    /// <param name="elinkUser">The ELink user the actor emits effects through. Defaults to the actor's own; naming a vanilla user (for example
+    /// Drake_Beam_Small_Fire) is a diagnostic: the same actor then drives a known-good vanilla effect.</param>
+    public GanonBeamMod(string vanillaRomfs, string outRomfs, string xlinkExe, string python = "python", string? elinkUser = null)
     {
+        _elinkUser = elinkUser ?? Actor;
         _vanilla = vanillaRomfs;
         _out = outRomfs;
         _xlink = xlinkExe;
@@ -84,7 +89,7 @@ public sealed class GanonBeamMod
         }
 
         string P(string folder, string file) => $"{folder}/{file}";
-        pack.Edit(pack.Find("Component/ELink/"), root => BymlEdit.SetString(root, "UserName", Actor));
+        pack.Edit(pack.Find("Component/ELink/"), root => BymlEdit.SetString(root, "UserName", _elinkUser));
 
         pack.Edit(pack.Find("Component/Blackboard/BlackboardParamTable/" + Actor), root =>
         {
@@ -185,7 +190,7 @@ public sealed class GanonBeamMod
         Byml source = BymlFile.FromBinary(data).Root.AsArray.First(r => r.AsMap["__RowId"].AsString() == cloneFrom); // an independent copy
         IDictionary<string, Byml> fields = source.AsMap;
         fields["__RowId"] = Byml.From(Actor);
-        if (fields.ContainsKey("ELinkUserName")) fields["ELinkUserName"] = Byml.From(Actor);
+        if (fields.ContainsKey("ELinkUserName")) fields["ELinkUserName"] = Byml.From(_elinkUser);
         if (fields.ContainsKey("ActorName")) fields["ActorName"] = Byml.From(Actor);
         if (fields.ContainsKey("InstanceHeapSize")) BymlEdit.SetNumber(source, "InstanceHeapSize", InstanceHeapSize);
 
