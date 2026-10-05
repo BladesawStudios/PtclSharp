@@ -20,7 +20,7 @@ public sealed class GanonBeamMod
     public const double BeamRange = 300.0;
     public const double BeamWidth = 1.0;        // BeamRadiusScaleDisplay: the effect (w, 1, w) scale; BotW fed exactly 1.0 (10 made the Light_Long glow a huge dome)
     public const int InstanceHeapSize = 56528;  // the donor has no AI; the Drake fire burst beam, which has one, needs this much
-    public const double BeamRadiusScale = 0.5; // TotK's Drake beam uses 2.5; BotW's capsule radius was 0.1
+    public const double BeamRadiusScale = 0.500123; // 0.5 plus a marker: the exefs patch (scripts/make_exefs_patch.py) grows the range only for a controller with exactly this value // TotK's Drake beam uses 2.5; BotW's capsule radius was 0.1
     public const double BaseAttackPower = 30;   // the Drake beam's value (BotW's was 72 on a different scale)
 
     private readonly string _vanilla;

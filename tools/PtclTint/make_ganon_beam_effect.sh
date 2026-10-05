@@ -14,8 +14,8 @@ dotnet run --project "$HERE" -- "$R/Effect/Drake_Beam_Small_Fire.Nin_NX_NVN.eset
   --only-set Enm_Drake_Beam_Small_Fire --only-set Enm_Drake_Beam_Small_Top_Fire \
   --rename-set Enm_Drake_Beam_Small_Fire=GanonBeast_Beam --rename-set Enm_Drake_Beam_Small_Top_Fire=GanonBeast_BeamHit \
   --drop Impact_Fire_01 \
-  --paint BeamLine_Fire_02=1,0.02,0.35 --gain BeamLine_Fire_02=3 --scale BeamLine_Fire_02=1.5,1,1.5   --paint GlowLine_Fire_01=1,0.04,0.35 --gain GlowLine_Fire_01=3 --scale GlowLine_Fire_01=2,1,2   --paint AroundLine_Fire_01=1,0.03,0.35 --gain AroundLine_Fire_01=3 --scale AroundLine_Fire_01=1.5,1,1.5   --paint LineLight_Fire_00=1,0.05,0.35 --gain LineLight_Fire_00=3 --scale LineLight_Fire_00=1.5,1,1.5   --keys FireRoot_00=YBill --scale FireRoot_00=16,16,16 \
-  --keys Fire_Spread_00=Smoke --scale Fire_Spread_00=16,13.4,16 \
+  --paint BeamLine_Fire_02=1,0.85,0.95 --gain BeamLine_Fire_02=8 --scale BeamLine_Fire_02=0.8,1,0.8   --paint GlowLine_Fire_01=1,0.04,0.35 --gain GlowLine_Fire_01=3 --scale GlowLine_Fire_01=2,1,2   --paint AroundLine_Fire_01=1,0.03,0.35 --gain AroundLine_Fire_01=3 --scale AroundLine_Fire_01=1.5,1,1.5   --paint LineLight_Fire_00=1,0.05,0.35 --gain LineLight_Fire_00=3 --scale LineLight_Fire_00=1.5,1,1.5   --keys FireRoot_00=YBill --scale FireRoot_00=16,16,16 --round FireRoot_00 \
+  --keys Fire_Spread_00=Smoke --scale Fire_Spread_00=16,13.4,16 --round Fire_Spread_00 \
   --keys ShockWave_00=Smoke_Center --scale ShockWave_00=12,12,12 \
   --keys PointGlow_Point_00=Core --scale PointGlow_Point_00=4,4,4 \
   --paint PointLight_Fire_00=1,0.1,0.4 --scale PointLight_Fire_00=1.5,1.5,1.5 \

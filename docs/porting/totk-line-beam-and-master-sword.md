@@ -255,3 +255,19 @@ straight up, a shot actor faces local Z (and BotW's `BeamDir` is `(0, 0, 1)`), s
 - **The orange fire explosion on impact is chemistry, not the effect.** The donor's chemical material is `IsBurn: True` with the `FireLv3`
   (StrongFire) element; the attack param itself has no element. Kohga/Gerudo/PlayerBeam use the empty `NoChemicalShootable` chemical param, so the
   build now copies that file from `Kohga_Golem_Beam` into the actor, repoints `ChemicalRef`, and removes the donor's chemical files.
+
+### 8.6 Range growth (executable patch with a code cave)
+
+BotW's `LineBeam` grows its range from 0 to `BeamRange` over a number of frames. TotK's Toggle controller reads `BeamosBeamRange` once, in its start
+function (`0x7101746364`; the only code that uses the key's hash), caches it at `this+0x98` and uses that every frame, so no data (and no AI node)
+can make it grow: it needs code. `tools/TotkModKit/scripts/make_exefs_patch.py` builds the patch (`.pchtxt` + IPS32, assembled with keystone and
+re-disassembled to check):
+
+- The call `bl 0x7101743ea8` (occlusion test) at `0x7101746984` in the update becomes `bl <cave>`. The cave always returns 0, so this also replaces
+  the earlier "never occluded" patch.
+- The cave sits in the zero padding at the end of `.text` (`0x2b19a50`; the segment is padded to `0x2b1a000`), 84 bytes.
+- It only acts when the controller's `BeamRadiusScale` (`this+0xa4`) is the marker `0.500123` (our actor's blackboard; vanilla beams use whole
+  numbers). Then each frame `this+0x98 = min(300, max(this+0x9c, 0) + 10)`. `this+0x9c` is the last frame's measured length (the start function
+  sets it to -100 each shot), so the beam grows from zero on every shot and, after a hit, grows from the hit distance. Do not use `this+0x5c`
+  as a counter: the base `ShootController::calc_` (`0x7101743bd4`) counts it down and resets physics group ids when it reaches zero.
+- BotW's growth time comes from a virtual call on the action (some callers pass -1); the rate (10 m per frame, ~30 frames) is a guess.
