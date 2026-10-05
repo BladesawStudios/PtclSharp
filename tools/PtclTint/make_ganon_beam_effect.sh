@@ -17,9 +17,9 @@ dotnet run --project "$HERE" -- "$R/Effect/Drake_Beam_Small_Fire.Nin_NX_NVN.eset
   --keys GlowLine_Fire_01=Emitter1_Copy2_Copy2 --peak GlowLine_Fire_01=12 --scale GlowLine_Fire_01=3,1,3 \
   --keys LineLight_Fire_00=Light_Long --peak LineLight_Fire_00=5 --scale LineLight_Fire_00=3,1,3 \
   --paint AroundLine_Fire_01=1,0.05,0.4 --gain AroundLine_Fire_01=6 --scale AroundLine_Fire_01=2,1,2 \
-  --keys FireRoot_00=YBill --scale FireRoot_00=8,8,8 \
-  --keys Fire_Spread_00=Smoke --scale Fire_Spread_00=8,8,8 \
-  --keys ShockWave_00=Smoke_Center --scale ShockWave_00=8,8,8 \
-  --keys PointGlow_Point_00=Core --scale PointGlow_Point_00=8,8,8 \
-  --paint PointLight_Fire_00=1,0.1,0.4 --scale PointLight_Fire_00=3,3,3 \
+  --keys FireRoot_00=YBill --scale FireRoot_00=16,16,16 \
+  --keys Fire_Spread_00=Smoke --scale Fire_Spread_00=16,16,16 \
+  --keys ShockWave_00=Smoke_Center --scale ShockWave_00=12,12,12 \
+  --keys PointGlow_Point_00=Core --scale PointGlow_Point_00=4,4,4 \
+  --paint PointLight_Fire_00=1,0.1,0.4 --scale PointLight_Fire_00=1.5,1.5,1.5 \
   --paint Spark_00=1,0.3,0.4 --scale Spark_00=8,8,8
