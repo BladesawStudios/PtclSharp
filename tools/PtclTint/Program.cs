@@ -2,11 +2,15 @@
 //
 //   PtclTint <in.esetb.byml.zs> <ZsDic.pack.zs> <out.esetb.byml.zs> [--rename-set from=to ...] [--recolor <gMul>,<bMul>,<swap 0|1>]
 //                            [--width <factor>] [--only-set <name> ...]
+//                            [--paint <emitter>=r,g,b] [--gain <emitter>=f] [--scale <emitter>=x,y,z] [--drop <emitter>]
 //
 // --recolor gMul,bMul,swap: for every colour (the colour key frames, the constant colours and the emitter colours) the new green is
 //   gMul * old green and the new blue is bMul * old blue; with swap=1 the old green and blue trade places first. Fire orange
 //   (1, 0.25, 0.04) becomes pink with `1,1.4,1`... see docs/porting/totk-line-beam-and-master-sword.md section 8.4.
 // --width f: multiplies particle_scale x and z of every emitter by f (the beam's thickness; y is the length axis).
+// --paint: replaces the hue of one emitter's colours with r,g,b, keeping each colour's brightness (its largest channel).
+// --gain: multiplies the emitter's particle_color_rgb_scale (HDR intensity: this is what feeds the bloom).
+// --scale: multiplies the emitter's particle_scale_xyz by x,y,z. --drop: removes the emitter. (Emitter names are the input file's.)
 // --only-set: drop every set that is not named (names are the ones in the input file, before renaming).
 using PtclSharp;
 using PtclSharp.Layout;
@@ -20,12 +24,21 @@ if (args.Length < 3)
 
 var renames = new Dictionary<string, string>(StringComparer.Ordinal);
 var only = new HashSet<string>(StringComparer.Ordinal);
+var paints = new Dictionary<string, float[]>(StringComparer.Ordinal);
+var gains = new Dictionary<string, float>(StringComparer.Ordinal);
+var scales = new Dictionary<string, float[]>(StringComparer.Ordinal);
+var drops = new HashSet<string>(StringComparer.Ordinal);
+float[] Floats(string text) => text.Split(',').Select(t => float.Parse(t, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
 float gMul = 1, bMul = 1, width = 1;
 bool swap = false, recolor = false;
 for (int i = 3; i < args.Length; i++)
 {
     if (args[i] == "--rename-set" && args[++i].Split('=', 2) is { Length: 2 } pair) renames[pair[0]] = pair[1];
     else if (args[i] == "--only-set") only.Add(args[++i]);
+    else if (args[i] == "--paint" && args[++i].Split('=', 2) is { Length: 2 } a) paints[a[0]] = Floats(a[1]);
+    else if (args[i] == "--gain" && args[++i].Split('=', 2) is { Length: 2 } b) gains[b[0]] = Floats(b[1])[0];
+    else if (args[i] == "--scale" && args[++i].Split('=', 2) is { Length: 2 } c) scales[c[0]] = Floats(c[1]);
+    else if (args[i] == "--drop") drops.Add(args[++i]);
     else if (args[i] == "--width") width = float.Parse(args[++i], System.Globalization.CultureInfo.InvariantCulture);
     else if (args[i] == "--recolor")
     {
@@ -53,6 +66,18 @@ void Recolor(Span<float> rgbPairs, int stride)
     }
 }
 
+static void Paint(StructView view, float[] hue, string field, int count, int stride)
+{
+    var v = new float[count];
+    for (int k = 0; k < count; k++) v[k] = view.GetSingle(field, k);
+    for (int k = 0; k + 2 < count; k += stride)
+    {
+        float peak = Math.Max(v[k], Math.Max(v[k + 1], v[k + 2]));
+        for (int j = 0; j < 3; j++) v[k + j] = hue[j] * peak;
+    }
+    for (int k = 0; k < count; k++) view.SetSingle(field, v[k], k);
+}
+
 void Emitters(VfxbTreeNode node, Action<VfxbTreeNode> each)
 {
     foreach (VfxbTreeNode child in node.Children)
@@ -75,10 +100,24 @@ foreach (VfxbTreeNode set in document.Sets)
     names.Add(final);
     Console.WriteLine($"set {name} -> {final}");
 
+    foreach (VfxbTreeNode gone in set.Children.Where(c => c.Kind == "EMTR" && drops.Contains(new StructView(layouts.Emitter, c.Data!).GetString("emitter_name"))).ToList())
+    {
+        set.Children.Remove(gone);
+        Console.WriteLine($"  dropped {new StructView(layouts.Emitter, gone.Data!).GetString("emitter_name")}");
+    }
+
     Emitters(set, e =>
     {
         var view = new StructView(layouts.Emitter, e.Data!);
         string emitter = view.GetString("emitter_name");
+        if (paints.TryGetValue(emitter, out float[]? hue))
+        {
+            Paint(view, hue, "kf_color0", 32, 4); Paint(view, hue, "kf_color1", 32, 4);
+            foreach (string field in new[] { "color0_const_rgb", "color1_const_rgb", "emitter_color0_rgb", "emitter_color1_rgb" }) Paint(view, hue, field, 3, 3);
+        }
+        if (gains.TryGetValue(emitter, out float gain)) view.SetSingle("particle_color_rgb_scale", view.GetSingle("particle_color_rgb_scale") * gain);
+        if (scales.TryGetValue(emitter, out float[]? by))
+            for (int k = 0; k < 3; k++) view.SetSingle("particle_scale_xyz", view.GetSingle("particle_scale_xyz", k) * by[k], k);
         if (recolor)
         {
             // kf_color0 / kf_color1 are 8 keys of (r, g, b, time); the constant colours and emitter colours are plain rgb triples.
