@@ -196,3 +196,15 @@ Findings from the second round (no new in-game result yet for the fixes below):
   has none; it has `valDampDist = 1000`, `valDrawPriority = 129`); `BeamRadiusScaleDisplay` is `GanonBeamMod.BeamWidth` (10) to
   make the thin core visible. This departs from BotW's 1.0 on purpose: TotK has no equivalent of whatever made the BotW core read
   as thick (bloom strength, shader), so it is a visual compromise to tune.
+
+### 8.2 Third test: despawns, flickers in, thin and not pink
+
+The lifetime AI works. The look was wrong because the automatic donor choice paired the main body emitter (`Emitter1_Copy2`, a plain
+textured model with no custom shader in BotW) with the `static` archive's `Distortion_00`, a screen-distortion shader: it does not
+draw the emitter colour, and refracts the background where it covers. The scorer compares program *signatures* (samplers, vertex
+inputs, parameter reads), not what a shader does, so any shader with the right inputs can win. `PtclConvert --donor-for
+<source emitter>=<donor emitter>@<shader_idx_normal>` now overrides the donor of one source emitter inside the chosen archive.
+`DbList`-style ranking (top donors per emitter within one file) is how to find alternatives; prefer non-custom donors with the same
+texture-slot pattern for plain emitters. Body set overrides used: `Emitter1_Copy2=Ring_In_00@908`, `Emitter1_Copy2_Copy2=Ring_Out_00@909`,
+`Light_Long=light_Yellow@79`, `Dot=ZonauAura_A_00@419`. The hit sets still use automatic donors (several are "custom shader the
+BotW side cannot carry", e.g. `Ripple`, `YBill`, `Smoke`).

@@ -39,6 +39,7 @@ string botwPath = args[0], donorPath = args[1], dictPath = args[2], outPath = ar
 string? donorEmitterName = null;
 bool allNotes = false;
 var renames = new Dictionary<string, string>(StringComparer.Ordinal);
+var donorOverrides = new Dictionary<string, (string Name, int Normal)>(StringComparer.Ordinal);
 string? botwRom = null, totkRomfs = null, textureOut = null, textureCache = null, modelCache = null, shaderDb = null, donorFile = null;
 for (int i = 4; i < args.Length; i++)
 {
@@ -52,6 +53,8 @@ for (int i = 4; i < args.Length; i++)
     else if (args[i] == "--rename-set" && i + 1 < args.Length && args[++i].Split('=', 2) is { Length: 2 } pair) renames[pair[0]] = pair[1];
     else if (args[i] == "--shader-db" && i + 1 < args.Length) shaderDb = args[++i];
     else if (args[i] == "--donor-file" && i + 1 < args.Length) donorFile = args[++i];
+    else if (args[i] == "--donor-for" && i + 1 < args.Length && args[++i].Split('=', 2) is { Length: 2 } map && map[1].Split('@') is { Length: 2 } target && int.TryParse(target[1], out int normal))
+        donorOverrides[map[0]] = (target[0], normal);
 }
 if ((botwRom is null) != (totkRomfs is null))
 {
@@ -76,6 +79,23 @@ if (shaderDb is not null)
     if (plan is null) { Console.Error.WriteLine(donorFile is null ? "No TotK shader archive can serve this effect." : $"'{donorFile}' cannot serve this effect (or is not a TotK effect in the database)."); return 1; }
     foreach (DonorPlan p in plans.Take(3))
         Console.WriteLine($"donor candidate {p.File.Name}: {p.Score:F3} (best possible with free choice per emitter {p.Ceiling:F3})");
+    if (donorOverrides.Count > 0)
+    {
+        // The scoring compares shader signatures, not what a shader does; --donor-for lets a human pick the donor emitter (inside the chosen
+        // file's archive) for a source emitter, as <source emitter>=<donor emitter>@<its shader_idx_normal>.
+        var chosen = new List<EmitterDonor>();
+        foreach (EmitterDonor e in plan.Emitters)
+        {
+            if (donorOverrides.TryGetValue(e.Source.Name, out var wanted))
+            {
+                int at = Array.FindIndex(plan.File.Emitters, u => u.Name == wanted.Name && u.Normal == wanted.Normal);
+                if (at < 0) { Console.Error.WriteLine($"--donor-for: {plan.File.Name} has no emitter {wanted.Name}@{wanted.Normal}."); return 1; }
+                chosen.Add(new EmitterDonor(e.Source, new DonorCandidate(plan.File, at, plan.File.Emitters[at], 1.0, ["chosen by --donor-for"])));
+            }
+            else chosen.Add(e);
+        }
+        plan = new DonorPlan(plan.File, plan.Score, plan.Ceiling, chosen);
+    }
     Console.WriteLine($"donor file: {plan.File.Name}");
     donor = PtclFile.ReadEsetb(File.ReadAllBytes(Path.Combine(totkRomfs, "Effect", plan.File.Name + ".Nin_NX_NVN.esetb.byml.zs")), dictionary);
     donorDoc = VfxbDocument.From(donor.Vfxb);
