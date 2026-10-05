@@ -97,6 +97,13 @@ public sealed class PackEdit
         _files[index] = (name, file.Write());
     }
 
+    /// <summary>Adds a file that is not in the pack yet.</summary>
+    public void Add(string name, byte[] data)
+    {
+        if (Contains(name)) throw new InvalidOperationException($"{name} already exists in the pack.");
+        _files.Add((name, data));
+    }
+
     public byte[] ToSarc() => Sarc.Write(_files);
 }
 

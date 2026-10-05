@@ -25,12 +25,17 @@ public sealed class GanonBeamMod
     private readonly string _out;
     private readonly ZsDictionaries _dictionaries;
     private readonly string _xlink;
+    private readonly string _python;
 
-    public GanonBeamMod(string vanillaRomfs, string outRomfs, string xlinkExe)
+    /// <summary>How long a shot lasts, in 30 fps frames (the unit of the AI's VFR counter).</summary>
+    public const int BeamFrames = 120;
+
+    public GanonBeamMod(string vanillaRomfs, string outRomfs, string xlinkExe, string python = "python")
     {
         _vanilla = vanillaRomfs;
         _out = outRomfs;
         _xlink = xlinkExe;
+        _python = python;
         _dictionaries = ZsDictionaries.Load(vanillaRomfs);
         if (Path.GetFullPath(outRomfs).StartsWith(Path.GetFullPath(vanillaRomfs), StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("The output folder must not be inside the vanilla romfs.");
@@ -99,7 +104,40 @@ public sealed class GanonBeamMod
             BymlEdit.SetBool(chemical, "IsSingleBurnEffect", false);
         });
 
+        AddLifetimeAi(pack);
+
         WriteOut(Path.Combine("Pack", "Actor", Actor + ".pack.zs"), _dictionaries.Compress(pack.ToSarc(), dict));
+    }
+
+    /// <summary>
+    /// A Toggle shootable lives until its shooter puts it to sleep, and nothing on the sword's side ever does (the vanilla Master Sword
+    /// beam is a projectile that ends itself). So the actor gets an AI of its own: a frame counter that, past <see cref="BeamFrames"/>,
+    /// runs OneShotShootableRequestSleep. The AINB is a trimmed copy of the Drake fire burst beam's (scripts/make_beam_ainb.py).
+    /// </summary>
+    private void AddLifetimeAi(PackEdit pack)
+    {
+        const string AiDonor = "Drake_Burst_Beam_Small_Fire";
+        var donor = new PackEdit(ReadVanillaPack(AiDonor, out _));
+        string work = Path.Combine(Path.GetTempPath(), "totkmodkit_ainb");
+        Directory.CreateDirectory(work);
+        string source = Path.Combine(work, AiDonor + ".root.ainb");
+        string built = Path.Combine(work, Actor + ".root.ainb");
+        File.WriteAllBytes(source, donor.Get($"AI/{AiDonor}.root.ainb"));
+
+        string script = Path.Combine(AppContext.BaseDirectory, "scripts", "make_beam_ainb.py");
+        var start = new ProcessStartInfo(_python, $"\"{script}\" \"{source}\" \"{built}\" {BeamFrames} {Actor}.root")
+        { RedirectStandardOutput = true, RedirectStandardError = true };
+        using Process process = Process.Start(start)!;
+        string output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        if (process.ExitCode != 0) throw new InvalidOperationException("make_beam_ainb.py failed:\n" + output);
+
+        pack.Add($"AI/{Actor}.root.ainb", File.ReadAllBytes(built));
+        string info = $"AI/AIInfo/{Actor}.engine__actor__AIInfo.bgyml";
+        pack.Add(info, donor.Get($"AI/AIInfo/{AiDonor}.engine__actor__AIInfo.bgyml"));
+        pack.Edit(info, root => BymlEdit.SetString(root, "RootAIRef", $"Work/AI/Root/{Actor}.root.ain"));
+        pack.Edit($"Actor/{Actor}.engine__actor__ActorParam.bgyml", root =>
+            root.AsMap["Components"].AsMap["AIInfoRef"] = Byml.From("?" + info));
     }
 
     // --- Master Sword -------------------------------------------------------------------------------------------------------------

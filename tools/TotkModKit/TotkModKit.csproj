@@ -12,4 +12,8 @@
     <ProjectReference Include="..\..\lib\ZstdSharp\src\ZstdSharp\ZstdSharp.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="scripts\*.py" CopyToOutputDirectory="PreserveNewest" LinkBase="scripts" />
+  </ItemGroup>
+
 </Project>

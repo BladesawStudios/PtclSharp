@@ -148,3 +148,31 @@ the emitters scale by the set scale, which is the default behaviour of both engi
    `CreateMethod = OnInitialization`, `ParamNum = 12`; use `MaxActors = 1` (a held beam).
 5. **Test order**: (a) beam appears and follows; (b) aims at the target; (c) how it ends; fix with sleep/lifetime data; (d) range/width
    values; (e) visuals (shader track).
+
+## 8. In-game findings and fixes
+
+First in-game test (actor + sword + effect, no AI): the sword fires, the effect barely shows, the beam never ends, and it does not
+behave like BotW's. Traced in TotK for the second symptom:
+
+- **Why it never ends.** `ShootControllerToggle`'s update (`0x710174694c`) never ends anything; it only keeps the ray, capsules and
+  effect handles current. (`FUN_7101743ea8`, which looks like a lifetime gate, is an owner-to-origin occlusion ray: if the owner
+  cannot see the beam origin the effect handles are killed and re-emitted when it can.) A Toggle shootable lives until its
+  *shooter* puts it to sleep: `Shooter::sleepAll` (`0x7101648594`) is reached only through `trySleepAll` from AI nodes
+  (`OneShotShooterRequestSleepAll`, Kohga/Goron-sage nodes), and `Shootable::requestSleep` (`0x710164580c`) from
+  `OneShotShootableRequestSleep`. The sword side (`ChemicalRodShootModule`/`MasterSwordRootShootModule`, `0x7101b73e24`) only
+  creates, prepares and shoots; the vanilla Master Sword beam is a *projectile*, which ends itself through
+  `ProjectileShootStateTimeOut`, `ProjectileDeleteRange` or a hit (`FUN_71017385ac`, the projectile controller's update). Those
+  fields are not read by the Toggle controller.
+- **`ShootRange` / `ShootSpeed` / `ShootMotionProperty` in the sword's `RodParam` do not apply to a Toggle.**
+- **Fix (data only): give the beam actor an AI.** `Drake_Beam_Small` has none. `scripts/make_beam_ainb.py` trims a copy of the
+  Drake fire burst beam's AINB to: S32 selector on `ShootableState` (enum order from the name table at `0x710431f700`: Sleep 0,
+  Prepare 1, Shoot 2, Stationary 3, Reflected 4, UsedExternally 5) -> in Shoot, `ExecuteGenericVFRCounter` feeds a BoolSelector
+  (expression: counter >= N frames) whose True branch runs `OneShotShootableRequestSleep`. `GanonBeamMod.AddLifetimeAi` adds
+  `AI/<Actor>.root.ainb`, `AI/AIInfo/<Actor>...bgyml` (`RootAIRef: Work/AI/Root/<Actor>.root.ain`) and `Components.AIInfoRef` to the
+  actor. `GanonBeamMod.BeamFrames` is the duration (30 fps frames).
+- **Where range and width come from** (`FUN_7101746364`, the controller's start): `BeamosBeamRange` (fallback `...Default`) ->
+  ray length (`+0x98`), `BeamRadiusScale` -> capsule radius multiplier (`+0xa4`), `BeamRadiusScaleDisplay` -> effect scale (`+0xa8`,
+  fed as `(w, 1, w)`). Every vanilla TotK beam has Display = 1; their visible width comes from the effect itself.
+- **Still open**: BotW's effect width (`BeamBase+0xc80`, set by `setProperties` from the owner; not in the actor's param lists), the
+  0 -> `BeamRange` growth over time (TotK reads the blackboard range once at start; growth would need an AI node writing
+  `BeamosBeamRange` each frame, or a code patch), the `Barrier` hit variant, and why the effect is nearly invisible.
