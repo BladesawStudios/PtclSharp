@@ -108,13 +108,14 @@ public sealed class GanonBeamMod
 
         pack.Edit(pack.Find("GameBalance/AttackParam/" + Actor), root => BymlEdit.SetNumber(root, "BaseAttackPower", BaseAttackPower));
 
-        // The donor is a fire beam; this one is not.
-        pack.Edit(pack.Find("Component/ChemicalParam/" + Actor), root =>
-        {
-            Byml chemical = root.AsMap["Object"].AsArray[0];
-            BymlEdit.SetBool(chemical, "InitialBurn", false);
-            BymlEdit.SetBool(chemical, "IsSingleBurnEffect", false);
-        });
+        // The donor is a fire beam (a burning, FireLv3 chemical material that ignites what it hits and spawns fire explosions); this one is
+        // not. The other TotK beams (Kohga, Gerudo, the sword's PlayerBeam) use the empty NoChemicalShootable chemical param: copy that.
+        const string NoChemical = "Component/ChemicalParam/NoChemicalShootable.game__component__ChemicalParam.bgyml";
+        var kohga = new PackEdit(ReadVanillaPack("Kohga_Golem_Beam", out _));
+        pack.Add(NoChemical, kohga.Get(NoChemical));
+        pack.Edit($"Actor/{Actor}.engine__actor__ActorParam.bgyml", root => root.AsMap["Components"].AsMap["ChemicalRef"] = Byml.From("?" + NoChemical));
+        foreach (string unused in pack.Names.Where(n => n.StartsWith("Chemical/") || n == pack.Find("Component/ChemicalParam/" + Actor)).ToList())
+            pack.Remove(unused);
 
         AddLifetimeAi(pack);
 

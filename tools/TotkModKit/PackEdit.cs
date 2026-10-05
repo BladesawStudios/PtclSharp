@@ -97,6 +97,12 @@ public sealed class PackEdit
         _files[index] = (name, file.Write());
     }
 
+    /// <summary>Removes a file (references to it are left alone: remove them first).</summary>
+    public void Remove(string name)
+    {
+        if (_files.RemoveAll(f => f.Name == name) == 0) throw new KeyNotFoundException($"{name} is not in the pack.");
+    }
+
     /// <summary>Adds a file that is not in the pack yet.</summary>
     public void Add(string name, byte[] data)
     {

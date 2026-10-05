@@ -244,3 +244,14 @@ PtclTint Drake_Beam_Small_Fire.Nin_NX_NVN.esetb.byml.zs ZsDic.pack.zs out.esetb.
 Aim: the Toggle controller casts along `ToggleRayVector` (`ShootableToggleRayX/Y/Z`, local axes of the actor); the donor's Y fires
 straight up, a shot actor faces local Z (and BotW's `BeamDir` is `(0, 0, 1)`), so the actor's ShootableParam now sets
 `ToggleRayVector = ShootableToggleRayZ`.
+
+### 8.5 Colour and chemistry
+
+- **BotW's absolute HDR must not be copied onto the Drake emitters.** `--keys` (copy BotW's colour/alpha/scale animation) and `--peak` made the
+  body a flat, hard-edged white spindle: BotW's `Light_Long` has `alpha0_const = 1` and 6000x colour, while the Drake `LineLight` emitter relies
+  on a tiny alpha, so it filled its mesh solid, and anything far above ~30 clips to white and then blooms white. TotK's bloom is fine (the vanilla
+  Drake beam has a halo); the body now keeps the Drake emitters' own intensity/alpha/animation and only gets a hue (`--paint`) and a width
+  (`--scale`). `--keys` is kept for the hit flames, which look right.
+- **The orange fire explosion on impact is chemistry, not the effect.** The donor's chemical material is `IsBurn: True` with the `FireLv3`
+  (StrongFire) element; the attack param itself has no element. Kohga/Gerudo/PlayerBeam use the empty `NoChemicalShootable` chemical param, so the
+  build now copies that file from `Kohga_Golem_Beam` into the actor, repoints `ChemicalRef`, and removes the donor's chemical files.
