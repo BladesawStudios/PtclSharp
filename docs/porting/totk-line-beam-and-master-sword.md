@@ -82,16 +82,69 @@ and `Death_*` tables; `ActionSlots.ShootableState.Shoot` is a frame window that 
 4. **Master Sword**: change `Weapon_Sword_070`'s `ShooterParam` `Actor` to the new actor (and check `MaxActors`, `ParamNum`).
 5. **Test** in game. Failure modes and what they mean are in section 6.
 
-## 6. Open questions (each is a Ghidra or in-game test)
+## 6. The open questions, traced (confidence marked)
 
-1. What binds a `Toggle` shootable to its shooter? `Kohga_Golem_Beam` uses a golem-specific AI node for position/orientation; the
-   weapon path (`ShootArgEquipment`, `PrepareControllerToggle`) may position it by itself. Trace `PrepareControllerToggle`
-   (`0x7101737c84`) and the equipment shoot path (`FUN_7101b74178` / `FUN_7101b741f0` in `ChemicalRodShootModule`).
-2. Does the sword's module support a *held* beam (Toggle on while a button is held) or only fire-and-forget? Check
-   `ChemicalRodShootModule::updateImpl_` (`0x7101b73e24`) against the Toggle lifecycle in `FUN_7101743ea8`.
-3. Where does the range (`+0x98`) come from for a non-device beam: blackboard `BeamosBeamRange`/`Default` via `FUN_7101bb9a58`
-   (`ExecuteBeamDevice`)? A weapon-fired beam needs a defined range.
-4. What `FUN_710086d5d0(1.0, length, handle)` sets, and which emitter field of the converted effect reads it (BotW writes the same
-   pair; the custom-shader emitters probably read it).
-5. Whether the converted custom-shader emitters (donor shaders) render the beam acceptably; this is the shader/CSDP track
-   (`docs/conversion.md`), independent of the actor.
+**Q1. What binds a Toggle shootable to its shooter and aims it?** *(mostly established; the last link is inferred)*
+- Shooting is generic. `Shooter::shootImpl_` (`0x71016490d0`) and `SharedShootableActor::shoot` (`0x7101734ab0`) do not care about the
+  `ShootableType`: they reset the `Shootable`, store the shoot arguments (origin, velocity, target position, damage, attack id), call
+  `changeState(2)` (active) and copy the data to the shot actor. The type only selects the *controller* that runs afterwards
+  (`ShootControllerToggle`, `...UseAI`, `...Arrow`, `...Shockwave`, `...Thrust`; `PrepareController*` mirror them). So a sword can
+  shoot a Toggle actor through the same code that shoots `PlayerBeam`.
+- A queued shoot request (`Shooter::updateShootables`, `0x710082ed1c`) carries a **bone name** (`ShootBoneName`) and an origin
+  offset; the code transforms them by the shooter's bone matrix (`vfunc +0x78`), gets the shooter's target position and calls
+  `Shooter::prepare` (if no actor is ready) and `Shooter::shoot`. This is the path enemy AI uses (`ExecuteShooterPrepare`,
+  `OneShotShooterShoot`/`...FromTarget`, params `ShootBoneName`, `ShootPos`, `ShootableIndex`).
+- The Toggle controller does **not** move the actor to the muzzle. It reads the actor's own transform each frame. Actors that follow
+  a moving owner do it by data: `Drake_Beam_Small` has **`ModelBindParam.BindType = Trans`** (bound to its creator's model; the
+  `BeamosBeam` base has no bind, which is why beam *devices* stay put) and no AI at all; `Kohga_Golem_Beam` uses a custom AI node
+  (`ExecuteKohgaGolemBeamMtrixBind`) to copy the owner's transform instead.
+- **Aiming:** when the shoot request supplied a target position (`Shooter::updateTargetPos`, `0x71016484fc`, sets `Shootable+0xac`
+  and flag `+0xd9 |= 0x40`), the Toggle controller rotates the actor so its forward axis points at it (`FUN_7101747950`,
+  `makeVectorRotation`). Unverified: that the sword's request (the `RodParam` fields `IsTargetPos`, `IsShootCamera`) fills the
+  target position; the in-game test shows it.
+- The controller itself emits the `Tail` effect (`FUN_7101746830` calls `XLinkComponent::searchAndEmit` with the key at
+  `0x71036f5027`) when it (re)activates, so the actor needs no AI to start the effect.
+
+**Q2. Held beam or fire-and-forget?** *(established for the engine, open for the sword's input)*
+A Toggle beam lives as long as the shootable is in the shoot state: nothing in the controller ends it. The shooter ends it with
+`Shooter::sleep` / `sleepAll` (`OneShotShooterRequestSleep(All)` in the Drake AI after the beam animation). The Master Sword's AI
+graph (`MasterSwordRoot.root.ainb`) has `OneShotPrapreShooterActorSleep`, `QueryShooterHasPreparedActor` and the
+`ChemicalRod.IsShootCondition` module; `MasterSwordRootShootModule` (`0x7101e35ad8`) only manages energy and prepares actors
+(`FUN_7101b72d88` -> `Shooter::requestCreateShootable`). What actually triggers the *shot* is the player's attack AI via the
+weapon's `RodParam` (`ShootNum`, `ShootAngle`, ...), not the sword's own AI, and **nothing in the vanilla game shoots a Toggle actor from
+a weapon or the player** (only owners such as `Enemy_Drake*`, `Enemy_DungeonBoss_Gerudo*`, `DgnObj_BeamDevice*`, `AssassinIronBall*`
+do). So expect a one-shot trigger to leave the beam running until something sleeps it (the sword's own sleep path, a lifetime on the
+actor, or damage/death). The DeathParam `ShootableCommon` and `ShootableParam.ResetSystemGroupIDTime` are the data knobs to try.
+
+**Q3. Range and width.** *(established)*
+Both come from the beam actor's **blackboard defaults**, not from code: `BeamosBeamRange` / `BeamosBeamRangeDefault` (Drake beam:
+2000.0), `BeamRadiusScale` (2.5) and `BeamRadiusScaleDisplay` (1.0). `FUN_710174694c` multiplies the ray vector by the range at
+`+0x98` and sets the capsule radius to `radius * scale`. Devices override the range through `ExecuteBeamDevice`
+(`FUN_7101bb9a58`) and the Zora boss through `ExecuteDungeonBossZoraBeam`; an ordinary beam actor just keeps its defaults. For the
+Dark Beast beam pick range = BotW `BeamRange` of `Enemy_GanonBeast` (read it from its AIProgram) and width from the BotW
+`BeamBase +0xc80`.
+
+**Q4. What is the `(1.0, length)` pair?** *(established as to mechanism; the SDK name is inferred)*
+`FUN_710086d5d0` writes the two floats into the ELink event (`+0x130/+0x134`) and sets event flag `0x1000`.
+`EventELink::fixDelayParam_` (`0x71009db3b0`) hands the flags to `AssetExecutorELink::setDelayParam` (`0x71009db598`), where bit
+`0xc` copies them into **`nn::vfx2::EmitterSet +0x1c0/+0x1c4`** (x, y; z is kept) and recomputes `+0x1e0/+0x1e8` as the product with
+the set's own scale (`+0x1a0/+0x1a8`): an **EmitterSet-wide scale of the particles** (bit `0xd` is the same with all three
+components; bit `0x12` is a volume scale and sets a flag). BotW writes the same pair through event flag `0x400`. Nothing in the
+effect file needs to read it: the beam's particles are unit-length (BotW's models are 1 unit long: `gurdianbeam`, `ring32uloop`)
+and the engine stretches every particle by `(1, length)`. Consequence for the port: it works for any converted emitter set as long as
+the emitters scale by the set scale, which is the default behaviour of both engines.
+
+**Q5. Do the custom-shader emitters render acceptably?** Independent of the actor; see the shader track in `docs/conversion.md`.
+
+## 7. Mod construction checklist
+
+1. **Effect**: `PtclConvert ... --rename-set` (any set names; the ELink user maps keys to them).
+2. **ELink2**: copy the `Drake_Beam_Small_Fire` (or `Kohga_Golem_Beam`) user, rename to `GanonBeastBeam`, point `Tail` at the beam body
+   set and `Beam_Top` at the hit set; keep the `Chemical_*`/`Death_*` tables. (TotK emits only `Tail` and `Beam_Top`; BotW's
+   `Barrier` variant has no TotK trigger, so merge it into `Beam_Top` or drop it.)
+3. **Actor pack** `GanonBeastBeam`: start from `Drake_Beam_Small` (no AI, `ModelBind Trans`, `BeamosBeam` parent, ShootableType
+   `Toggle`), change `ELinkParam.UserName`, the blackboard defaults (range, radius scale), and `AttackParam` (BotW power 72).
+4. **Master Sword**: in `Weapon_Sword_070` and `Weapon_Sword_077` set the `ShooterParam` `Actor` to the new actor; keep
+   `CreateMethod = OnInitialization`, `ParamNum = 12`; use `MaxActors = 1` (a held beam).
+5. **Test order**: (a) beam appears and follows; (b) aims at the target; (c) how it ends; fix with sleep/lifetime data; (d) range/width
+   values; (e) visuals (shader track).
