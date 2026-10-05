@@ -134,6 +134,9 @@ Each present array is a sequence of `vertex_count` `float4` values; the runtime 
 
 ## 2. Byte-by-Byte Verified Field Map
 
+> **Warning:** the "BotW offset" and delta columns in this table are alignment guesses made before BotW was re-verified. They are wrong in places (for example BotW `emission_tangent_amount` is at `0x984`, not `0x974`). Use `botw-emtr-offsets-ghidra.md` for BotW.
+
+
 | TotK Offset | BotW Offset | Delta | Size (B) | Type | Field Name | Executable Behavior & Verification Evidence |
 |:---:|:---:|:---:|:---:|:---:|:---|:---|
 | `0x000` | `0x000` | `+0x000` | 4 | `bytes[4]` | `unused_000` | Unused: no consumer exists in the engine (details in the audit). EMTR data, not the node FourCC. The FourCC is in the separate node header. No unambiguous data-field reader has yet established this value's meaning. **Audit:** CPU: no reader found in the traced functions (the immediate-offset scan is not discriminating below `0xCA0` because many other structs share those offsets). GPU: no byte is read by any of the 14,423 shader programs in the 1,088 distinct shipped shader archives. Corpus: all-zero in 25,261/25,261 emitters. |
