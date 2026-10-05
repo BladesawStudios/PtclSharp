@@ -273,3 +273,11 @@ re-disassembled to check):
   sets it to -100 each shot), so the beam grows from zero on every shot and, after a hit, grows from the hit distance. Do not use `this+0x5c`
   as a counter: the base `ShootController::calc_` (`0x7101743bd4`) counts it down and resets physics group ids when it reaches zero.
 - BotW's growth time comes from a virtual call on the action (some callers pass -1); the rate (10 m per frame, ~30 frames) is a guess.
+
+### 8.7 The range-growth patch is withdrawn
+
+The cave over `FUN_7101744fe8` could not be shown safe: Ghidra lists no references to it, but the game calls through tables and computed
+pointers constantly, so that proves nothing, and the other candidate spaces were no better (the compiler's "unreachable" blocks inside the update
+are out-of-line slow paths, reachable in principle; the zero padding after `.text` is not patched by Ryujinx and crashed when jumped to). The mod
+ships without an executable patch: no range growth and the stock occlusion test. `scripts/make_exefs_patch.py` is kept for reference with a warning.
+Range growth wants a framework that hooks functions with memory of its own (the user has offered one), where the same logic is a few lines of code.

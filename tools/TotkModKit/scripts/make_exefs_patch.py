@@ -1,4 +1,9 @@
-"""Builds the executable patch for the Ganon beam mod (TotK 1.2.1 `main`), as a .pchtxt (TKMM and similar tools compile it to IPS themselves, so no .ips is written).
+"""DO NOT SHIP THE OUTPUT OF THIS SCRIPT. It places its cave over FUN_7101744fe8, a function Ghidra shows no references to, but TotK calls through
+tables and computed pointers all the time, so "no references" does not prove it is dead; if anything ever runs it, the game crashes somewhere unrelated.
+(The cave must also be real .text: Ryujinx does not apply patch bytes in the padding after it, and a first version crashed there.) Range growth needs
+code space that is guaranteed ours: use an executable modding framework (hooks with their own memory) instead of a hand-placed cave.
+
+Builds the executable patch for the Ganon beam mod (TotK 1.2.1 `main`), as a .pchtxt (TKMM and similar tools compile it to IPS themselves, so no .ips is written).
 
 What it patches. ShootControllerToggle's update (0x710174694c) starts with `bl 0x7101743ea8` (an occlusion test). That call becomes
 `bl cave`; the cave sits over the unreferenced function FUN_7101744fe8, grows the beam's range for our actor only, and then tail-calls the original
