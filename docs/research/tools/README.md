@@ -45,3 +45,9 @@ payload sizes, and a lossless read/rewrite of every emitter field.
 | `gen/botw_rows.py`, `gen/botw_overrides.py` | Source of the BotW byte map: regenerate section 3 of the BotW doc with `BOTW_EMTR_BIN=<emtr_botw.bin> python botw_rows.py <docs/research>`, then run `gen_layouts.py`. |
 
 BotW corpus tests need `PTCL_BOTW_ROM` (the ROM root that contains `Effect/*.sesetlist`).
+
+## Textures and shaders
+
+`tools/PtclShaderDb` (needs Marrow's ShaderLibrary, path in its csproj) builds and queries the shader database: `build`, `stats`,
+`match <db> <botw.sesetlist> [--emitters]` and `validate <db> --botw-rom <ROM>` (the shared-effects check quoted in
+`docs/conversion.md`). Tests that use it read `PTCL_SHADER_DB`.

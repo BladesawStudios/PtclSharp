@@ -1,5 +1,8 @@
 <Solution>
   <Folder Name="/lib/" />
+  <Folder Name="/lib/BfresLibrary/">
+    <Project Path="lib/BfresLibrary/BfresLibrary/BfresLibrary.csproj" />
+  </Folder>
   <Folder Name="/lib/BymlSharp/" />
   <Folder Name="/lib/BymlSharp/src/">
     <Project Path="lib/BymlSharp/src/BymlSharp/BymlSharp.csproj" />
@@ -17,8 +20,12 @@
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/PtclConvert/PtclConvert.csproj" />
+    <Project Path="tools/PtclShaderDb/PtclShaderDb.csproj" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/PtclSharp/PtclSharp.csproj" />
+    <Project Path="src/PtclSharp.Textures/PtclSharp.Textures.csproj" />
+    <Project Path="src/PtclSharp.Shaders/PtclSharp.Shaders.csproj" />
+    <Project Path="src/PtclSharp.Models/PtclSharp.Models.csproj" />
   </Folder>
 </Solution>

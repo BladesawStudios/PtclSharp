@@ -48,6 +48,17 @@ public static class BotwToTotkConverter
         ["unverified_744"] = "unverified_C54"
     };
 
+    /// <summary>
+    /// The TotK emitter field that receives a BotW emitter field in conversion (same name, a known alias, or one of the
+    /// <see cref="UnverifiedAnalogs"/> when <paramref name="includeUnverifiedAnalogs"/> is set), or null when TotK has no counterpart.
+    /// </summary>
+    public static string? TotkFieldFor(string botwField, bool includeUnverifiedAnalogs = true)
+    {
+        if (Aliases.TryGetValue(botwField, out string? alias)) return alias;
+        if (includeUnverifiedAnalogs && UnverifiedAnalogs.TryGetValue(botwField, out string? analog)) return analog;
+        return Totk.Emitter.TryGetField(botwField, out FieldDef? to) && to.Status != FieldStatus.Unused ? to.Name : null;
+    }
+
     /// <summary>Fields the converter sets itself (shader, callbacks) and must not copy from BotW.</summary>
     private static readonly HashSet<string> Handled =
     [
@@ -78,8 +89,10 @@ public static class BotwToTotkConverter
         List<VfxbTreeNode> sets = ConvertSets(botw, options, report);
         VfxbDocument result = totkDonor.WithSets(sets);
         result.RecountChildren();
-        report.Add(ConversionSeverity.Warning, "file",
-            "Primitives (PRMA), G3D models and shader archives come from the donor file, not from the BotW file; emitters that use a BotW mesh or custom shader need those supplied separately.");
+        bool carriesGeometry = options.CarriedModelIds is not null || options.CarriedMeshIds is not null;
+        report.Add(ConversionSeverity.Warning, "file", carriesGeometry
+            ? "The shader archive comes from the donor file, not from the BotW file; emitters that use a BotW custom shader need a donor for it separately. Models and mesh primitives are the caller's (see ConverterOptions)."
+            : "Primitives (PRMA), G3D models and shader archives come from the donor file, not from the BotW file; emitters that use a BotW mesh or custom shader need those supplied separately.");
         return result;
     }
 
@@ -132,7 +145,7 @@ public static class BotwToTotkConverter
         // 3. Things the converter decides.
         ApplyTextures(srcView, dstView, options, scope, report);
         ApplyShader(src, dstView, options, scope, report, out byte[]? customShaderParams);
-        CheckMeshes(srcView, scope, report);
+        CheckMeshes(srcView, options, scope, report);
         if (srcView.GetByte("depth_test_enable") != 1 || srcView.GetByte("depth_write_enable") != 0)
             report.Add(ConversionSeverity.Info, scope, "BotW depth test/write flags (depth_test_enable, depth_write_enable) have no TotK per-emitter field; TotK defaults apply.");
         if (srcView.GetByte("emitter_calc_type") == 2)
@@ -215,11 +228,13 @@ public static class BotwToTotkConverter
         customShaderParams = binding.CustomShaderParams;
     }
 
-    private static void CheckMeshes(StructView src, string scope, ConversionReport report)
+    private static void CheckMeshes(StructView src, ConverterOptions options, string scope, ConversionReport report)
     {
-        if (src.GetUInt64("mesh_primitive_idx") != ulong.MaxValue)
+        ulong mesh = src.GetUInt64("mesh_primitive_idx");
+        if (mesh != ulong.MaxValue && options.CarriedMeshIds?.Contains(mesh) != true)
             report.Add(ConversionSeverity.Error, scope, "Uses a BotW mesh primitive (mesh_primitive_idx); the primitive is not carried over.");
-        if (src.GetUInt64("g3d_primitive_idx") != ulong.MaxValue)
+        ulong model = src.GetUInt64("g3d_primitive_idx");
+        if (model != ulong.MaxValue && options.CarriedModelIds?.Contains(model) != true)
             report.Add(ConversionSeverity.Error, scope, "Uses a BotW G3D model primitive (g3d_primitive_idx); the model is not carried over.");
         if (src.GetByte("is_trimming_prim") != 0 && src.GetUInt64("trim_primitive_idx") != ulong.MaxValue)
             report.Add(ConversionSeverity.Error, scope, "Uses a BotW trimming primitive; it is not carried over.");

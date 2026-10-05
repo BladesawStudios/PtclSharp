@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PtclSharp\PtclSharp.csproj" />
+    <ProjectReference Include="..\..\lib\BfresLibrary\BfresLibrary\BfresLibrary.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- BfresLibrary exposes Syroot.Maths vector types (the bounding sphere is a Vector4F). -->
+    <Reference Include="Syroot.Maths">
+      <HintPath>..\..\lib\BfresLibrary\Libraries\Syroot.Maths.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>

@@ -45,8 +45,20 @@ public sealed class ConverterOptions
     /// <summary>Chooses the TotK shader for a converted emitter from its BotW EMTR data; null keeps the BotW indices and reports an error.</summary>
     public Func<byte[], ShaderBinding?>? ShaderBinder { get; init; }
 
-    /// <summary>Maps a BotW texture GUID to the TotK GUID of the equivalent texture; null keeps the GUID and reports a warning.</summary>
+    /// <summary>
+    /// Maps a BotW texture GUID to the TotK GUID of the equivalent texture (see <c>PtclSharp.Textures.TexturePlan.Map</c>); null keeps the GUID and
+    /// reports a warning. A GUID names the same texture in both games, so for textures TotK has the mapping is the identity.
+    /// </summary>
     public Func<ulong, ulong?>? TextureMap { get; init; }
+
+    /// <summary>
+    /// Ids of the G3D models (<c>g3d_primitive_idx</c>) the caller embeds in the converted file's <c>G3PR</c> (see <c>PtclSharp.Models</c>);
+    /// emitters that use any other model are reported as errors. Null means no model is carried.
+    /// </summary>
+    public IReadOnlySet<ulong>? CarriedModelIds { get; init; }
+
+    /// <summary>Ids of the mesh primitives (<c>mesh_primitive_idx</c>) the caller embeds in the converted file's <c>PRMA</c>; null means none.</summary>
+    public IReadOnlySet<ulong>? CarriedMeshIds { get; init; }
 
     /// <summary>
     /// Also copies the GPU-only fields whose purpose is unproven but whose position, shader read pattern and value

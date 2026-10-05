@@ -83,6 +83,9 @@ public sealed class VfxbDocument
     /// <summary>Where <see cref="Tail"/> started in the source file; the writer keeps new positions congruent modulo 0x1000.</summary>
     public int OriginalTailOffset { get; }
 
+    /// <summary>The tail split into its root nodes, for replacing one of them (see <see cref="VfxbTail"/>); assign <c>ToBytes()</c> back to <see cref="Tail"/>.</summary>
+    public VfxbTail ParseTail() => VfxbTail.Parse(Tail, OriginalTailOffset);
+
     /// <summary>A new document with <paramref name="sets"/> as the emitter sets, keeping this document's header and tail (a donor file).</summary>
     public VfxbDocument WithSets(IEnumerable<VfxbTreeNode> sets)
     {

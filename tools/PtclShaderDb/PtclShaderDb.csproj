@@ -5,13 +5,14 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <NoWarn>$(NoWarn);CS8632</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\PtclSharp\PtclSharp.csproj" />
-    <ProjectReference Include="..\..\src\PtclSharp.Textures\PtclSharp.Textures.csproj" />
     <ProjectReference Include="..\..\src\PtclSharp.Shaders\PtclSharp.Shaders.csproj" />
-    <ProjectReference Include="..\..\src\PtclSharp.Models\PtclSharp.Models.csproj" />
+    <!-- Marrow's vendored ShaderLibrary reads BNSH archives and decompiles Tegra bytecode to GLSL; adjust the path if Marrow lives elsewhere. -->
+    <ProjectReference Include="C:\Users\dylan\repos\Nintending\Tools\SHADERS5\Marrow\vendor\ShaderLibrary\ShaderLibrary.CompileTool\ShaderLibrary.CompileTool.csproj" />
   </ItemGroup>
 
 </Project>

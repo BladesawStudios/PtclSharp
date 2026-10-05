@@ -84,6 +84,21 @@ public class LayoutTests
     }
 
     [Fact]
+    public void ReadReturnsEachFieldInItsOwnType()
+    {
+        EmitterLayout emitter = PtclLayouts.For(PtclVersion.TotK_NintendoWareVfx2_15_3_1).Emitter;
+        var data = new byte[emitter.Size];
+        var view = new StructView(emitter, data);
+        view.SetInt32("shader_idx_normal", -1);
+        view.SetUInt64("tex_slot0_guid", ulong.MaxValue);
+
+        Assert.Equal(-1, Assert.IsType<int>(view.Read(emitter["shader_idx_normal"])));
+        Assert.Equal(ulong.MaxValue, Assert.IsType<ulong>(view.Read(emitter["tex_slot0_guid"])));
+        Assert.IsType<uint>(view.Read(emitter["particle_lifespan"]));
+        Assert.IsType<float>(view.Read(emitter["gravity_scale"]));
+    }
+
+    [Fact]
     public void ConfirmedByteCountsAreReportedPerStatus()
     {
         EmitterLayout emitter = PtclLayouts.For(PtclVersion.TotK_NintendoWareVfx2_15_3_1).Emitter;

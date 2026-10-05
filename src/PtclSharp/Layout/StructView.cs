@@ -74,15 +74,15 @@ public readonly ref struct StructView
     /// <summary>Reads any numeric element as a boxed value (u8..u64, i8..i64, f32); arrays return the element at <paramref name="index"/>.</summary>
     public object Read(FieldDef def, int index = 0) => def.Type switch
     {
-        FieldType.U8 => Data[ElementOffset(def, index)],
-        FieldType.I8 => (sbyte)Data[ElementOffset(def, index)],
-        FieldType.U16 => BinaryPrimitives.ReadUInt16LittleEndian(Data[ElementOffset(def, index)..]),
-        FieldType.I16 => BinaryPrimitives.ReadInt16LittleEndian(Data[ElementOffset(def, index)..]),
-        FieldType.U32 => BinaryPrimitives.ReadUInt32LittleEndian(Data[ElementOffset(def, index)..]),
-        FieldType.I32 => BinaryPrimitives.ReadInt32LittleEndian(Data[ElementOffset(def, index)..]),
-        FieldType.U64 => BinaryPrimitives.ReadUInt64LittleEndian(Data[ElementOffset(def, index)..]),
-        FieldType.I64 => BinaryPrimitives.ReadInt64LittleEndian(Data[ElementOffset(def, index)..]),
-        FieldType.F32 => BinaryPrimitives.ReadSingleLittleEndian(Data[ElementOffset(def, index)..]),
+        FieldType.U8 => (object)Data[ElementOffset(def, index)],
+        FieldType.I8 => (object)(sbyte)Data[ElementOffset(def, index)],
+        FieldType.U16 => (object)BinaryPrimitives.ReadUInt16LittleEndian(Data[ElementOffset(def, index)..]),
+        FieldType.I16 => (object)BinaryPrimitives.ReadInt16LittleEndian(Data[ElementOffset(def, index)..]),
+        FieldType.U32 => (object)BinaryPrimitives.ReadUInt32LittleEndian(Data[ElementOffset(def, index)..]),
+        FieldType.I32 => (object)BinaryPrimitives.ReadInt32LittleEndian(Data[ElementOffset(def, index)..]),
+        FieldType.U64 => (object)BinaryPrimitives.ReadUInt64LittleEndian(Data[ElementOffset(def, index)..]),
+        FieldType.I64 => (object)BinaryPrimitives.ReadInt64LittleEndian(Data[ElementOffset(def, index)..]),
+        FieldType.F32 => (object)BinaryPrimitives.ReadSingleLittleEndian(Data[ElementOffset(def, index)..]),
         _ => throw new InvalidOperationException($"{def.Name} is {def.Type}; use GetBytes/GetString.")
     };
 
