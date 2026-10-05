@@ -2,12 +2,16 @@
 //
 //   PtclTint <in.esetb.byml.zs> <ZsDic.pack.zs> <out.esetb.byml.zs> [--rename-set from=to ...] [--recolor <gMul>,<bMul>,<swap 0|1>]
 //                            [--width <factor>] [--only-set <name> ...]
+//                            [--botw <file.sesetlist> --keys <emitter>=<BotW emitter> ...]
 //                            [--paint <emitter>=r,g,b] [--gain <emitter>=f] [--scale <emitter>=x,y,z] [--drop <emitter>]
 //
 // --recolor gMul,bMul,swap: for every colour (the colour key frames, the constant colours and the emitter colours) the new green is
 //   gMul * old green and the new blue is bMul * old blue; with swap=1 the old green and blue trade places first. Fire orange
 //   (1, 0.25, 0.04) becomes pink with `1,1.4,1`... see docs/porting/totk-line-beam-and-master-sword.md section 8.4.
 // --width f: multiplies particle_scale x and z of every emitter by f (the beam's thickness; y is the length axis).
+// --keys: copies the colour, alpha and scale animation of a BotW emitter (found by name in --botw's file) onto the emitter: the key counts, key
+//   tables, colour modes, constants, the HDR scale (particle_color_rgb_scale) and the particle lifetime, since the keys are timed by it.
+//   Applied before --paint / --gain / --scale, which can then adjust the result.
 // --paint: replaces the hue of one emitter's colours with r,g,b, keeping each colour's brightness (its largest channel).
 // --gain: multiplies the emitter's particle_color_rgb_scale (HDR intensity: this is what feeds the bloom).
 // --scale: multiplies the emitter's particle_scale_xyz by x,y,z. --drop: removes the emitter. (Emitter names are the input file's.)
@@ -27,6 +31,8 @@ var only = new HashSet<string>(StringComparer.Ordinal);
 var paints = new Dictionary<string, float[]>(StringComparer.Ordinal);
 var gains = new Dictionary<string, float>(StringComparer.Ordinal);
 var scales = new Dictionary<string, float[]>(StringComparer.Ordinal);
+string? botwPath = null;
+var keys = new Dictionary<string, string>(StringComparer.Ordinal);
 var drops = new HashSet<string>(StringComparer.Ordinal);
 float[] Floats(string text) => text.Split(',').Select(t => float.Parse(t, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
 float gMul = 1, bMul = 1, width = 1;
@@ -38,6 +44,8 @@ for (int i = 3; i < args.Length; i++)
     else if (args[i] == "--paint" && args[++i].Split('=', 2) is { Length: 2 } a) paints[a[0]] = Floats(a[1]);
     else if (args[i] == "--gain" && args[++i].Split('=', 2) is { Length: 2 } b) gains[b[0]] = Floats(b[1])[0];
     else if (args[i] == "--scale" && args[++i].Split('=', 2) is { Length: 2 } c) scales[c[0]] = Floats(c[1]);
+    else if (args[i] == "--botw") botwPath = args[++i];
+    else if (args[i] == "--keys" && args[++i].Split('=', 2) is { Length: 2 } d) keys[d[0]] = d[1];
     else if (args[i] == "--drop") drops.Add(args[++i]);
     else if (args[i] == "--width") width = float.Parse(args[++i], System.Globalization.CultureInfo.InvariantCulture);
     else if (args[i] == "--recolor")
@@ -87,6 +95,35 @@ void Emitters(VfxbTreeNode node, Action<VfxbTreeNode> each)
     }
 }
 
+// BotW emitter data blocks by name, for --keys.
+var botwEmitters = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+PtclLayoutSet botwLayouts = PtclLayouts.For(PtclVersion.BotW_NintendoWareVfx_4_4_0);
+if (botwPath is not null)
+{
+    PtclFile botw = PtclFile.ReadSesetlist(File.ReadAllBytes(botwPath));
+    foreach (VfxbTreeNode set in VfxbDocument.From(botw.Vfxb).Sets)
+        Emitters(set, e => botwEmitters[new StructView(botwLayouts.Emitter, e.Data!).GetString("emitter_name")] = (byte[])e.Data!.Clone());
+}
+
+static void CopyField(StructView from, StructView to, StructLayout fromLayout, StructLayout toLayout, string name)
+{
+    if (!fromLayout.TryGetField(name, out FieldDef a) || !toLayout.TryGetField(name, out FieldDef b) || a.Count != b.Count)
+        throw new InvalidOperationException($"field {name} is not the same shape in both layouts");
+    bool IsInt(FieldType t) => t is FieldType.U8 or FieldType.U32 or FieldType.I32;
+    if (a.Type != b.Type && !(IsInt(a.Type) && IsInt(b.Type))) throw new InvalidOperationException($"field {name}: {a.Type} cannot become {b.Type}");
+    for (int k = 0; k < a.Count; k++)
+    {
+        if (a.Type == FieldType.F32) { to.SetSingle(name, from.GetSingle(name, k), k); continue; }
+        long value = a.Type switch { FieldType.U8 => from.GetByte(name, k), FieldType.U32 => from.GetUInt32(name, k), _ => from.GetInt32(name, k) };
+        switch (b.Type)
+        {
+            case FieldType.U8: to.SetByte(name, (byte)Math.Clamp(value, 0, 255), k); break;
+            case FieldType.U32: to.SetUInt32(name, (uint)Math.Max(0, value), k); break;
+            default: to.SetInt32(name, (int)value, k); break;
+        }
+    }
+}
+
 var kept = new List<VfxbTreeNode>();
 var names = new List<string>();
 foreach (VfxbTreeNode set in document.Sets)
@@ -110,6 +147,19 @@ foreach (VfxbTreeNode set in document.Sets)
     {
         var view = new StructView(layouts.Emitter, e.Data!);
         string emitter = view.GetString("emitter_name");
+        if (keys.TryGetValue(emitter, out string? botwName))
+        {
+            if (!botwEmitters.TryGetValue(botwName, out byte[]? botwData)) throw new InvalidOperationException($"--keys: BotW emitter {botwName} not found");
+            var from = new StructView(botwLayouts.Emitter, botwData);
+            foreach (string field in new[]
+                     {
+                         "color0_mode", "color0_key_count", "kf_color0", "color1_key_count", "kf_color1", "alpha0_key_count", "kf_alpha0",
+                         "alpha1_key_count", "kf_alpha1", "scale_key_count", "kf_scale", "color0_const_rgb", "color1_const_rgb", "alpha0_const",
+                         "alpha1_const", "particle_color_rgb_scale", "particle_lifespan", "particle_lifespan_random_percent"
+                     })
+                CopyField(from, view, botwLayouts.Emitter, layouts.Emitter, field);
+            Console.WriteLine($"  {emitter}: animation copied from BotW {botwName}");
+        }
         if (paints.TryGetValue(emitter, out float[]? hue))
         {
             Paint(view, hue, "kf_color0", 32, 4); Paint(view, hue, "kf_color1", 32, 4);
