@@ -53,8 +53,7 @@ body = "\n".join([
 ])
 body_bytes = bytes(ks.asm(body, CAVE + head_len)[0])
 tail = CAVE + head_len + len(body_bytes)  # `b <original occlusion test>`: every beam, ours included, still runs the unmodified function
-head = "
-".join(["ldr w8, [x19, #0xa4]", movs("w9", f32_bits(MARKER)), "cmp w8, w9", f"b.ne #{tail}"])
+head = "\n".join(["ldr w8, [x19, #0xa4]", movs("w9", f32_bits(MARKER)), "cmp w8, w9", f"b.ne #{tail}"])
 head_bytes = bytes(ks.asm(head, CAVE)[0])
 assert len(head_bytes) == head_len
 cave_bytes = head_bytes + body_bytes + bytes(ks.asm(f"b #{ORIGINAL}", tail)[0])
