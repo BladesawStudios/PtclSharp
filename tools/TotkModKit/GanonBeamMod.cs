@@ -18,7 +18,7 @@ public sealed class GanonBeamMod
 
     // Gameplay values, from BotW unless noted. Range: ForkGanonBeastBeamShoot BeamRange of Enemy_GanonBeast. The rest are starting points.
     public const double BeamRange = 300.0;
-    public const double BeamWidth = 10.0;       // BeamRadiusScaleDisplay: the effect's (w, 1, w) scale. BotW fed 1.0, but see section 8 of the doc.
+    public const double BeamWidth = 1.0;        // BeamRadiusScaleDisplay: the effect (w, 1, w) scale; BotW fed exactly 1.0 (10 made the Light_Long glow a huge dome)
     public const int InstanceHeapSize = 56528;  // the donor has no AI; the Drake fire burst beam, which has one, needs this much
     public const double BeamRadiusScale = 0.5; // TotK's Drake beam uses 2.5; BotW's capsule radius was 0.1
     public const double BaseAttackPower = 30;   // the Drake beam's value (BotW's was 72 on a different scale)
