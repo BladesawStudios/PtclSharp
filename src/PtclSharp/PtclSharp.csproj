@@ -4,12 +4,13 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <PtclLibRoot Condition="'$(PtclLibRoot)' == ''">$(MSBuildThisFileDirectory)..\..\lib</PtclLibRoot>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\lib\ZstdSharp\src\ZstdSharp\ZstdSharp.csproj" />
-    <ProjectReference Include="..\..\lib\BymlSharp\src\BymlSharp\BymlSharp.csproj" />
-    <ProjectReference Include="..\..\lib\Yaz0Sharp\src\Yaz0Sharp\Yaz0Sharp.csproj" />
+    <ProjectReference Include="$(PtclLibRoot)\ZstdSharp\src\ZstdSharp\ZstdSharp.csproj" />
+    <ProjectReference Include="$(PtclLibRoot)\BymlSharp\src\BymlSharp\BymlSharp.csproj" />
+    <ProjectReference Include="$(PtclLibRoot)\Yaz0Sharp\src\Yaz0Sharp\Yaz0Sharp.csproj" />
   </ItemGroup>
 
 </Project>

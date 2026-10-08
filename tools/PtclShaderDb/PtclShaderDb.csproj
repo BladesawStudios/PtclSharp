@@ -6,13 +6,14 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <NoWarn>$(NoWarn);CS8632</NoWarn>
+    <PtclLibRoot Condition="'$(PtclLibRoot)' == ''">$(MSBuildThisFileDirectory)..\..\lib</PtclLibRoot>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\PtclSharp\PtclSharp.csproj" />
     <ProjectReference Include="..\..\src\PtclSharp.Shaders\PtclSharp.Shaders.csproj" />
-    <!-- Marrow's vendored ShaderLibrary reads BNSH archives and decompiles Tegra bytecode to GLSL; adjust the path if Marrow lives elsewhere. -->
-    <ProjectReference Include="C:\Users\dylan\repos\Nintending\Tools\SHADERS5\Marrow\vendor\ShaderLibrary\ShaderLibrary.CompileTool\ShaderLibrary.CompileTool.csproj" />
+    <!-- ShaderLibrary reads BNSH archives and decompiles Tegra bytecode to GLSL. -->
+    <ProjectReference Include="$(PtclLibRoot)\ShaderLibrary\ShaderLibrary.CompileTool\ShaderLibrary.CompileTool.csproj" />
   </ItemGroup>
 
 </Project>
