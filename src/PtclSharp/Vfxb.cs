@@ -45,7 +45,9 @@ public sealed record VfxbHeader(
     byte AlignmentShift,
     byte TargetAddressSize,
     ushort FirstBlockOffset,
-    uint FileSize);
+    uint FileSize,
+    string FileName = "",
+    bool BigEndian = false);
 
 /// <summary>A raw VFXB resource node. Unknown data is intentionally not interpreted.</summary>
 public sealed class VfxbNode
@@ -119,6 +121,36 @@ public sealed class VfxbFile
     public IReadOnlyList<VfxbNode> Roots { get; }
     public IReadOnlyList<VfxbEmitterSet> EmitterSets { get; }
 
+    /// <summary>True for a Wii U EFTB file: the same node tree and layouts, stored big-endian.</summary>
+    public bool BigEndian => Header.BigEndian;
+
+    /// <summary>
+    /// The bytes of a node's data block: up to its first child or attribute node, or the whole declared size for
+    /// nodes whose size covers only their binary (textures, primitives, shaders and their name tables).
+    /// </summary>
+    public ReadOnlySpan<byte> NodeData(VfxbNode node)
+    {
+        if (node.DataRelativeOffset < 0 || node.DataRelativeOffset >= 0x10000000)
+            return [];
+        int start = node.Offset + node.DataRelativeOffset;
+        long length;
+        if (BinaryNodes.Contains(node.Kind))
+            length = node.Size;
+        else
+        {
+            long end = node.Size;
+            foreach (int rel in new[] { node.ChildRelativeOffset, node.AttributeRelativeOffset })
+                if (rel != -1 && rel >= node.DataRelativeOffset && rel < end)
+                    end = rel;
+            length = Math.Max(0, end - node.DataRelativeOffset);
+        }
+        if (start < 0 || start + length > Data.Length)
+            throw new InvalidDataException($"{node.Kind} data at 0x{start:X}+0x{length:X} is outside the file.");
+        return Data.AsSpan(start, (int)length);
+    }
+
+    private static readonly HashSet<string> BinaryNodes = ["TEXR", "GX2B", "PRIM", "SHDB", "GRTF", "GTNT", "G3PR", "G3NT", "GRSN", "GRSC"];
+
     /// <summary>The version-specific field layouts for this file.</summary>
     public PtclLayoutSet Layouts => PtclLayouts.For(Layout.RuntimeVersion);
 
@@ -127,7 +159,7 @@ public sealed class VfxbFile
     {
         int offset = emitter.Node.DataOffset
             ?? throw new InvalidDataException($"EMTR node at 0x{emitter.Node.Offset:X} has no data block.");
-        return new StructView(Layouts.Emitter, Data.AsSpan(offset, Layout.EmitterFixedDataSize));
+        return new StructView(Layouts.Emitter, Data.AsSpan(offset, Layout.EmitterFixedDataSize), BigEndian);
     }
 
     /// <summary>A typed, zero-copy view of an emitter set's data block.</summary>
@@ -135,38 +167,65 @@ public sealed class VfxbFile
     {
         int offset = set.Node.DataOffset
             ?? throw new InvalidDataException($"ESET node at 0x{set.Node.Offset:X} has no data block.");
-        return new StructView(Layouts.EmitterSet, Data.AsSpan(offset, Layout.EmitterSetFixedDataSize));
+        return new StructView(Layouts.EmitterSet, Data.AsSpan(offset, Layout.EmitterSetFixedDataSize), BigEndian);
     }
 }
 
 public static class VfxbReader
 {
     private const int HeaderSize = 0x20;
+    private const int EftbHeaderSize = 0x30;
     private const int NodeHeaderSize = 0x20;
+
+    /// <summary>True for a VFXB (Switch, TotK) or EFTB (Wii U BotW) payload.</summary>
+    public static bool IsVfxb(ReadOnlySpan<byte> bytes) =>
+        bytes.Length >= HeaderSize && (bytes[..8].SequenceEqual("VFXB    "u8) || bytes[..4].SequenceEqual("EFTB"u8));
 
     public static VfxbFile Read(ReadOnlySpan<byte> bytes, VfxbLayout? expectedLayout = null)
     {
         if (bytes.Length < HeaderSize)
             throw new InvalidDataException("VFXB is shorter than its binary header.");
 
-        string signature = Encoding.ASCII.GetString(bytes[..8]);
-        if (signature != "VFXB    ")
-            throw new InvalidDataException($"Invalid VFXB signature '{signature}'.");
+        VfxbHeader header;
+        if (bytes[..4].SequenceEqual("EFTB"u8))
+        {
+            //Wii U: a 0x30-byte header (magic, version word, file name) and the VFXB node tree in big-endian.
+            if (bytes.Length < EftbHeaderSize)
+                throw new InvalidDataException("EFTB is shorter than its binary header.");
+            header = new VfxbHeader(
+                "EFTB",
+                0,
+                checked((ushort)BinaryPrimitives.ReadUInt32BigEndian(bytes[4..])),
+                0xFEFF,
+                0,
+                0,
+                EftbHeaderSize,
+                (uint)bytes.Length,
+                ReadFixedString(bytes, 8, 0x20),
+                true);
+        }
+        else
+        {
+            string signature = Encoding.ASCII.GetString(bytes[..8]);
+            if (signature != "VFXB    ")
+                throw new InvalidDataException($"Invalid VFXB signature '{signature}'.");
 
-        var header = new VfxbHeader(
-            signature,
-            bytes[9],
-            BinaryPrimitives.ReadUInt16LittleEndian(bytes[10..]),
-            BinaryPrimitives.ReadUInt16LittleEndian(bytes[12..]),
-            bytes[14],
-            bytes[15],
-            BinaryPrimitives.ReadUInt16LittleEndian(bytes[22..]),
-            BinaryPrimitives.ReadUInt32LittleEndian(bytes[28..]));
+            header = new VfxbHeader(
+                signature,
+                bytes[9],
+                BinaryPrimitives.ReadUInt16LittleEndian(bytes[10..]),
+                BinaryPrimitives.ReadUInt16LittleEndian(bytes[12..]),
+                bytes[14],
+                bytes[15],
+                BinaryPrimitives.ReadUInt16LittleEndian(bytes[22..]),
+                BinaryPrimitives.ReadUInt32LittleEndian(bytes[28..]),
+                bytes.Length >= 0x40 ? ReadFixedString(bytes, 0x20, 0x20) : "");
 
-        if (header.ByteOrderMark != 0xFEFF)
-            throw new InvalidDataException($"Unsupported VFXB byte-order mark 0x{header.ByteOrderMark:X4}.");
-        if (header.FileSize != bytes.Length)
-            throw new InvalidDataException($"VFXB header size {header.FileSize} does not match {bytes.Length} bytes.");
+            if (header.ByteOrderMark != 0xFEFF)
+                throw new InvalidDataException($"Unsupported VFXB byte-order mark 0x{header.ByteOrderMark:X4}.");
+            if (header.FileSize != bytes.Length)
+                throw new InvalidDataException($"VFXB header size {header.FileSize} does not match {bytes.Length} bytes.");
+        }
 
         VfxbLayout layout = expectedLayout ?? header.BinaryVersion switch
         {
@@ -180,13 +239,14 @@ public static class VfxbReader
                 $"Expected VFXB binary version {layout.BinaryVersion}, got {header.BinaryVersion}.");
 
         byte[] data = bytes.ToArray();
-        List<VfxbNode> roots = ReadSiblingChain(data, header.FirstBlockOffset, new HashSet<int>(), true);
+        bool big = header.BigEndian;
+        List<VfxbNode> roots = ReadSiblingChain(data, big, header.FirstBlockOffset, new HashSet<int>(), true);
         VfxbNode? esta = roots.FirstOrDefault(x => x.Kind == "ESTA");
-        List<VfxbEmitterSet> sets = esta is null ? [] : ReadEmitterSets(data, esta, layout);
+        List<VfxbEmitterSet> sets = esta is null ? [] : ReadEmitterSets(data, big, esta, layout);
         return new VfxbFile(data, layout, header, roots, sets);
     }
 
-    private static List<VfxbEmitterSet> ReadEmitterSets(byte[] data, VfxbNode esta, VfxbLayout layout)
+    private static List<VfxbEmitterSet> ReadEmitterSets(byte[] data, bool big, VfxbNode esta, VfxbLayout layout)
     {
         var result = new List<VfxbEmitterSet>();
         foreach (VfxbNode setNode in esta.Children.Where(x => x.Kind == "ESET"))
@@ -199,8 +259,8 @@ public static class VfxbReader
                 layout.EmitterSetEmitterCountSize);
             int declaredCount = layout.EmitterSetEmitterCountSize switch
             {
-                sizeof(ushort) => BinaryPrimitives.ReadUInt16LittleEndian(countData),
-                sizeof(int) => BinaryPrimitives.ReadInt32LittleEndian(countData),
+                sizeof(ushort) => big ? BinaryPrimitives.ReadUInt16BigEndian(countData) : BinaryPrimitives.ReadUInt16LittleEndian(countData),
+                sizeof(int) => big ? BinaryPrimitives.ReadInt32BigEndian(countData) : BinaryPrimitives.ReadInt32LittleEndian(countData),
                 _ => throw new InvalidOperationException(
                     $"Unsupported emitter-count size {layout.EmitterSetEmitterCountSize}.")
             };
@@ -211,7 +271,7 @@ public static class VfxbReader
             {
                 foreach (VfxbNode node in nodes.Where(x => x.Kind == "EMTR"))
                 {
-                    collected.Add(ReadEmitter(data, node, layout, depth));
+                    collected.Add(ReadEmitter(data, big, node, layout, depth));
                     Collect(node.Children, depth + 1);
                 }
             }
@@ -227,14 +287,15 @@ public static class VfxbReader
         return result;
     }
 
-    private static VfxbEmitter ReadEmitter(byte[] data, VfxbNode node, VfxbLayout layout, int depth)
+    private static VfxbEmitter ReadEmitter(byte[] data, bool big, VfxbNode node, VfxbLayout layout, int depth)
     {
         int dataOffset = RequireDataOffset(node);
         EnsureRange(data, dataOffset, layout.EmitterFixedDataSize, "EMTR fixed data");
         ulong?[] textureGuids = layout.TextureSamplerGuidOffsets
             .Select(offset =>
             {
-                ulong guid = BinaryPrimitives.ReadUInt64LittleEndian(data.AsSpan(dataOffset + offset, 8));
+                ReadOnlySpan<byte> slot = data.AsSpan(dataOffset + offset, 8);
+                ulong guid = big ? BinaryPrimitives.ReadUInt64BigEndian(slot) : BinaryPrimitives.ReadUInt64LittleEndian(slot);
                 return guid == ulong.MaxValue ? (ulong?)null : guid;
             })
             .ToArray();
@@ -247,6 +308,7 @@ public static class VfxbReader
 
     private static List<VfxbNode> ReadSiblingChain(
         byte[] data,
+        bool big,
         int startOffset,
         HashSet<int> ancestry,
         bool recurseIntoChildren,
@@ -259,7 +321,7 @@ public static class VfxbReader
         {
             if (!siblings.Add(offset))
                 throw new InvalidDataException($"VFXB sibling cycle at 0x{offset:X}.");
-            VfxbNode node = ReadNode(data, offset);
+            VfxbNode node = ReadNode(data, big, offset);
             nodes.Add(node);
 
             // A positive header child count bounds the child chain: the chain is not always terminated
@@ -271,13 +333,13 @@ public static class VfxbReader
                 if (!ancestry.Add(offset))
                     throw new InvalidDataException($"VFXB child cycle at 0x{offset:X}.");
                 node.Children.AddRange(ReadSiblingChain(
-                    data, checked(offset + node.ChildRelativeOffset), ancestry, true,
+                    data, big, checked(offset + node.ChildRelativeOffset), ancestry, true,
                     node.DeclaredChildCount > 0 ? node.DeclaredChildCount : int.MaxValue));
                 ancestry.Remove(offset);
             }
             if (node.AttributeRelativeOffset > 0)
                 node.Attributes.AddRange(ReadSiblingChain(
-                    data, checked(offset + node.AttributeRelativeOffset), new HashSet<int>(), false));
+                    data, big, checked(offset + node.AttributeRelativeOffset), new HashSet<int>(), false));
 
             offset = node.SiblingRelativeOffset <= 0
                 ? -1
@@ -286,28 +348,30 @@ public static class VfxbReader
         return nodes;
     }
 
-    private static VfxbNode ReadNode(byte[] data, int offset)
+    private static VfxbNode ReadNode(byte[] data, bool big, int offset)
     {
         EnsureRange(data, offset, NodeHeaderSize, "node header");
         ReadOnlySpan<byte> span = data.AsSpan(offset, NodeHeaderSize);
+        int I32(ReadOnlySpan<byte> s) => big ? BinaryPrimitives.ReadInt32BigEndian(s) : BinaryPrimitives.ReadInt32LittleEndian(s);
         return new VfxbNode(
             Encoding.ASCII.GetString(span[..4]),
             offset,
-            BinaryPrimitives.ReadUInt32LittleEndian(span[4..]),
-            BinaryPrimitives.ReadInt32LittleEndian(span[8..]),
-            BinaryPrimitives.ReadInt32LittleEndian(span[12..]),
-            BinaryPrimitives.ReadInt32LittleEndian(span[16..]),
-            BinaryPrimitives.ReadInt32LittleEndian(span[20..]),
-            BinaryPrimitives.ReadUInt16LittleEndian(span[28..]));
+            (uint)I32(span[4..]),
+            I32(span[8..]),
+            I32(span[12..]),
+            I32(span[16..]),
+            I32(span[20..]),
+            big ? BinaryPrimitives.ReadUInt16BigEndian(span[28..]) : BinaryPrimitives.ReadUInt16LittleEndian(span[28..]));
     }
 
     private static int RequireDataOffset(VfxbNode node) => node.DataOffset
         ?? throw new InvalidDataException($"{node.Kind} node at 0x{node.Offset:X} has no data block.");
 
-    private static string ReadFixedString(byte[] data, int offset, int maximumLength)
+    private static string ReadFixedString(ReadOnlySpan<byte> data, int offset, int maximumLength)
     {
-        EnsureRange(data, offset, maximumLength, "fixed string");
-        ReadOnlySpan<byte> span = data.AsSpan(offset, maximumLength);
+        if (offset < 0 || maximumLength < 0 || offset > data.Length - maximumLength)
+            throw new InvalidDataException($"VFXB fixed string range 0x{offset:X}+0x{maximumLength:X} is outside the file.");
+        ReadOnlySpan<byte> span = data.Slice(offset, maximumLength);
         int terminator = span.IndexOf((byte)0);
         return Encoding.UTF8.GetString(terminator < 0 ? span : span[..terminator]);
     }

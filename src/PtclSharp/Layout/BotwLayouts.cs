@@ -243,9 +243,36 @@ internal static class BotwLayouts
         ]);
         yield return new ChunkLayout("G3NT.Entry", 0x18,
         [
+            U64("unique_id", 0x00, V, "Corpus: the primitive id EMTR primitive fields refer to; equals the unique_id of the PRIM copy when both exist."),
             U32("next_offset", 0x08, C, "0x7100ae3994: the next entry is at this byte offset (0 ends the chain)."),
             U8("attribute_index_a", 0x14, C, "0x7100aee3a8: index (0xFF = none) of the g3d attribute-name fallback for the first UV stream."),
             U8("attribute_index_b", 0x15, C, "0x7100aee3a8: index (0xFF = none) of the fallback for the _u1 stream.")
+        ]);
+
+        yield return new ChunkLayout("GTNT.Entry", 0x10,
+        [
+            U64("texture_id", 0x00, V, "Corpus: the GUID EMTR sampler slots refer to."),
+            U32("next_offset", 0x08, V, "Corpus: the next entry is at this byte offset (0 ends the chain)."),
+            U32("name_length", 0x0C, V, "Corpus: length of the NUL-terminated BNTX texture name that follows the entry header.")
+        ]);
+
+        //Wii U (EFTB) only: TEXA holds one TEXR per texture, its GX2 surface description, with the image in a GX2B child.
+        const string Texr = "Wii U EFTB corpus: the GX2Surface fields of the GX2B image that follows.";
+        yield return new ChunkLayout("TEXR", 0x30,
+        [
+            new FieldDef("width", 0x00, FieldType.U16, 1, V, Texr),
+            new FieldDef("height", 0x02, FieldType.U16, 1, V, Texr),
+            U32("depth", 0x04, V, Texr),
+            U8("comp_sel", 0x08, V, Texr, count: 4),
+            U32("mip_count", 0x0C, V, Texr),
+            U32("format", 0x10, V, Texr + " GX2SurfaceFormat."),
+            U32("tile_mode", 0x14, V, Texr + " GX2TileMode."),
+            U32("unverified_18", 0x18, V, "Not interpreted."),
+            U32("swizzle", 0x1C, V, Texr + " GX2 swizzle word (bank/pipe bits and first 1D level)."),
+            U64("texture_id", 0x20, V, "Corpus: the GUID EMTR sampler slots refer to."),
+            U8("native_format", 0x28, V, "Not interpreted."),
+            Raw("padding_29", 0x29, 3, V, "Not interpreted."),
+            U32("unverified_2C", 0x2C, V, "Not interpreted.")
         ]);
     }
 }

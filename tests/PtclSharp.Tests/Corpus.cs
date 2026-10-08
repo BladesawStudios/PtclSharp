@@ -11,6 +11,7 @@ internal static class Corpus
 {
     internal const string TotkEnv = "PTCL_TOTK_ROMFS";
     internal const string BotwEnv = "PTCL_BOTW_ROM";
+    internal const string BotwWiiUEnv = "PTCL_BOTW_WIIU_ROM";
 
     internal static string? TotkRoot
     {
@@ -30,6 +31,19 @@ internal static class Corpus
             return root is not null && Directory.Exists(Path.Combine(root, "Effect")) ? root : null;
         }
     }
+
+    /// <summary>Wii U BotW content root (the folder that contains <c>Effect/*.sesetlist</c> in EFTB form), or null.</summary>
+    internal static string? BotwWiiURoot
+    {
+        get
+        {
+            string? root = Environment.GetEnvironmentVariable(BotwWiiUEnv);
+            return root is not null && Directory.Exists(Path.Combine(root, "Effect")) ? root : null;
+        }
+    }
+
+    internal static IEnumerable<string> BotwWiiUFiles() =>
+        Directory.GetFiles(Path.Combine(BotwWiiURoot!, "Effect"), "*.sesetlist").Order(StringComparer.Ordinal);
 
     internal static IEnumerable<string> BotwFiles() =>
         Directory.GetFiles(Path.Combine(BotwRoot!, "Effect"), "*.sesetlist").Order(StringComparer.Ordinal);
@@ -65,5 +79,15 @@ public sealed class TotkCorpusFactAttribute : FactAttribute
     {
         if (Corpus.TotkRoot is null)
             Skip = $"Set {Corpus.TotkEnv} to a TotK romfs root to run the corpus tests.";
+    }
+}
+
+/// <summary>A <see cref="FactAttribute"/> that is skipped when the Wii U BotW corpus is not available.</summary>
+public sealed class BotwWiiUCorpusFactAttribute : FactAttribute
+{
+    public BotwWiiUCorpusFactAttribute()
+    {
+        if (Corpus.BotwWiiURoot is null)
+            Skip = $"Set {Corpus.BotwWiiUEnv} to a Wii U BotW content root (the folder with Effect/*.sesetlist) to run the Wii U corpus tests.";
     }
 }

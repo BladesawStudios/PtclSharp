@@ -98,6 +98,8 @@ public sealed class VfxbDocument
 
     public static VfxbDocument From(VfxbFile file)
     {
+        if (file.BigEndian)
+            throw new NotSupportedException("The VFXB writer is little-endian only; a Wii U EFTB file can be read but not rewritten.");
         VfxbNode estaNode = file.Roots.FirstOrDefault(r => r.Kind == "ESTA")
             ?? throw new InvalidDataException("The file has no ESTA node.");
         if (file.Roots[0] != estaNode)

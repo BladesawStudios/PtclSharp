@@ -10,36 +10,40 @@ namespace PtclSharp.Layout;
 /// </summary>
 public readonly ref struct StructView
 {
-    public StructView(StructLayout layout, Span<byte> data)
+    public StructView(StructLayout layout, Span<byte> data, bool bigEndian = false)
     {
         if (data.Length < layout.Size)
             throw new ArgumentException($"{layout.Name} needs {layout.Size} bytes but the span has {data.Length}.");
         Layout = layout;
         Data = data;
+        BigEndian = bigEndian;
     }
 
     public StructLayout Layout { get; }
     public Span<byte> Data { get; }
 
+    /// <summary>True for the Wii U (EFTB) byte order; every multi-byte field is stored big-endian.</summary>
+    public bool BigEndian { get; }
+
     public byte GetByte(string field, int index = 0) => Data[Locate(field, FieldType.U8, index)];
     public sbyte GetSByte(string field, int index = 0) => (sbyte)Data[Locate(field, FieldType.I8, index)];
-    public ushort GetUInt16(string field, int index = 0) => BinaryPrimitives.ReadUInt16LittleEndian(Data[Locate(field, FieldType.U16, index)..]);
-    public short GetInt16(string field, int index = 0) => BinaryPrimitives.ReadInt16LittleEndian(Data[Locate(field, FieldType.I16, index)..]);
-    public uint GetUInt32(string field, int index = 0) => BinaryPrimitives.ReadUInt32LittleEndian(Data[Locate(field, FieldType.U32, index)..]);
-    public int GetInt32(string field, int index = 0) => BinaryPrimitives.ReadInt32LittleEndian(Data[Locate(field, FieldType.I32, index)..]);
-    public ulong GetUInt64(string field, int index = 0) => BinaryPrimitives.ReadUInt64LittleEndian(Data[Locate(field, FieldType.U64, index)..]);
-    public long GetInt64(string field, int index = 0) => BinaryPrimitives.ReadInt64LittleEndian(Data[Locate(field, FieldType.I64, index)..]);
-    public float GetSingle(string field, int index = 0) => BinaryPrimitives.ReadSingleLittleEndian(Data[Locate(field, FieldType.F32, index)..]);
+    public ushort GetUInt16(string field, int index = 0) => U16(Data[Locate(field, FieldType.U16, index)..]);
+    public short GetInt16(string field, int index = 0) => (short)U16(Data[Locate(field, FieldType.I16, index)..]);
+    public uint GetUInt32(string field, int index = 0) => U32(Data[Locate(field, FieldType.U32, index)..]);
+    public int GetInt32(string field, int index = 0) => (int)U32(Data[Locate(field, FieldType.I32, index)..]);
+    public ulong GetUInt64(string field, int index = 0) => U64(Data[Locate(field, FieldType.U64, index)..]);
+    public long GetInt64(string field, int index = 0) => (long)U64(Data[Locate(field, FieldType.I64, index)..]);
+    public float GetSingle(string field, int index = 0) => BitConverter.UInt32BitsToSingle(U32(Data[Locate(field, FieldType.F32, index)..]));
 
     public void SetByte(string field, byte value, int index = 0) => Data[Locate(field, FieldType.U8, index)] = value;
     public void SetSByte(string field, sbyte value, int index = 0) => Data[Locate(field, FieldType.I8, index)] = (byte)value;
-    public void SetUInt16(string field, ushort value, int index = 0) => BinaryPrimitives.WriteUInt16LittleEndian(Data[Locate(field, FieldType.U16, index)..], value);
-    public void SetInt16(string field, short value, int index = 0) => BinaryPrimitives.WriteInt16LittleEndian(Data[Locate(field, FieldType.I16, index)..], value);
-    public void SetUInt32(string field, uint value, int index = 0) => BinaryPrimitives.WriteUInt32LittleEndian(Data[Locate(field, FieldType.U32, index)..], value);
-    public void SetInt32(string field, int value, int index = 0) => BinaryPrimitives.WriteInt32LittleEndian(Data[Locate(field, FieldType.I32, index)..], value);
-    public void SetUInt64(string field, ulong value, int index = 0) => BinaryPrimitives.WriteUInt64LittleEndian(Data[Locate(field, FieldType.U64, index)..], value);
-    public void SetInt64(string field, long value, int index = 0) => BinaryPrimitives.WriteInt64LittleEndian(Data[Locate(field, FieldType.I64, index)..], value);
-    public void SetSingle(string field, float value, int index = 0) => BinaryPrimitives.WriteSingleLittleEndian(Data[Locate(field, FieldType.F32, index)..], value);
+    public void SetUInt16(string field, ushort value, int index = 0) => W16(Data[Locate(field, FieldType.U16, index)..], value);
+    public void SetInt16(string field, short value, int index = 0) => W16(Data[Locate(field, FieldType.I16, index)..], (ushort)value);
+    public void SetUInt32(string field, uint value, int index = 0) => W32(Data[Locate(field, FieldType.U32, index)..], value);
+    public void SetInt32(string field, int value, int index = 0) => W32(Data[Locate(field, FieldType.I32, index)..], (uint)value);
+    public void SetUInt64(string field, ulong value, int index = 0) => W64(Data[Locate(field, FieldType.U64, index)..], value);
+    public void SetInt64(string field, long value, int index = 0) => W64(Data[Locate(field, FieldType.I64, index)..], (ulong)value);
+    public void SetSingle(string field, float value, int index = 0) => W32(Data[Locate(field, FieldType.F32, index)..], BitConverter.SingleToUInt32Bits(value));
 
     /// <summary>The raw bytes of any field (works for every type).</summary>
     public Span<byte> GetBytes(string field)
@@ -76,15 +80,23 @@ public readonly ref struct StructView
     {
         FieldType.U8 => (object)Data[ElementOffset(def, index)],
         FieldType.I8 => (object)(sbyte)Data[ElementOffset(def, index)],
-        FieldType.U16 => (object)BinaryPrimitives.ReadUInt16LittleEndian(Data[ElementOffset(def, index)..]),
-        FieldType.I16 => (object)BinaryPrimitives.ReadInt16LittleEndian(Data[ElementOffset(def, index)..]),
-        FieldType.U32 => (object)BinaryPrimitives.ReadUInt32LittleEndian(Data[ElementOffset(def, index)..]),
-        FieldType.I32 => (object)BinaryPrimitives.ReadInt32LittleEndian(Data[ElementOffset(def, index)..]),
-        FieldType.U64 => (object)BinaryPrimitives.ReadUInt64LittleEndian(Data[ElementOffset(def, index)..]),
-        FieldType.I64 => (object)BinaryPrimitives.ReadInt64LittleEndian(Data[ElementOffset(def, index)..]),
-        FieldType.F32 => (object)BinaryPrimitives.ReadSingleLittleEndian(Data[ElementOffset(def, index)..]),
+        FieldType.U16 => (object)U16(Data[ElementOffset(def, index)..]),
+        FieldType.I16 => (object)(short)U16(Data[ElementOffset(def, index)..]),
+        FieldType.U32 => (object)U32(Data[ElementOffset(def, index)..]),
+        FieldType.I32 => (object)(int)U32(Data[ElementOffset(def, index)..]),
+        FieldType.U64 => (object)U64(Data[ElementOffset(def, index)..]),
+        FieldType.I64 => (object)(long)U64(Data[ElementOffset(def, index)..]),
+        FieldType.F32 => (object)BitConverter.UInt32BitsToSingle(U32(Data[ElementOffset(def, index)..])),
         _ => throw new InvalidOperationException($"{def.Name} is {def.Type}; use GetBytes/GetString.")
     };
+
+    private ushort U16(ReadOnlySpan<byte> s) => BigEndian ? BinaryPrimitives.ReadUInt16BigEndian(s) : BinaryPrimitives.ReadUInt16LittleEndian(s);
+    private uint U32(ReadOnlySpan<byte> s) => BigEndian ? BinaryPrimitives.ReadUInt32BigEndian(s) : BinaryPrimitives.ReadUInt32LittleEndian(s);
+    private ulong U64(ReadOnlySpan<byte> s) => BigEndian ? BinaryPrimitives.ReadUInt64BigEndian(s) : BinaryPrimitives.ReadUInt64LittleEndian(s);
+
+    private void W16(Span<byte> s, ushort v) { if (BigEndian) BinaryPrimitives.WriteUInt16BigEndian(s, v); else BinaryPrimitives.WriteUInt16LittleEndian(s, v); }
+    private void W32(Span<byte> s, uint v) { if (BigEndian) BinaryPrimitives.WriteUInt32BigEndian(s, v); else BinaryPrimitives.WriteUInt32LittleEndian(s, v); }
+    private void W64(Span<byte> s, ulong v) { if (BigEndian) BinaryPrimitives.WriteUInt64BigEndian(s, v); else BinaryPrimitives.WriteUInt64LittleEndian(s, v); }
 
     private int Locate(string field, FieldType expected, int index)
     {
