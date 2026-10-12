@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\PtclSharp\PtclSharp.csproj" />
+    <ProjectReference Include="..\..\src\PtclSharp.Models\PtclSharp.Models.csproj" />
+    <ProjectReference Include="..\..\src\PtclSharp.Simulation\PtclSharp.Simulation.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="Syroot.BinaryData">
+      <HintPath>..\..\lib\BfresLibrary\Libraries\Syroot.BinaryData.dll</HintPath>
+    </Reference>
+    <Reference Include="Syroot.Maths">
+      <HintPath>..\..\lib\BfresLibrary\Libraries\Syroot.Maths.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>

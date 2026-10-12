@@ -7,6 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- Marrow's vendored ShaderLibrary decompiles Tegra bytecode to GLSL; adjust the path if Marrow lives elsewhere. -->
-    <ProjectReference Include="C:\Users\dylan\repos\Nintending\Tools\SHADERS5\Marrow\vendor\ShaderLibrary\ShaderLibrary.CompileTool\ShaderLibrary.CompileTool.csproj" />
+    <ProjectReference Include="C:\Users\dylan\repos\Nintending\Libraries\WildRenderingSharp\vendor\ShaderLibrary\ShaderLibrary.CompileTool\ShaderLibrary.CompileTool.csproj" />
   </ItemGroup>
 </Project>

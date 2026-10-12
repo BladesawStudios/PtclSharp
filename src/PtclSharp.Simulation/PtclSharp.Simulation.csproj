@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Runtime\CurlNoise.bin" LogicalName="CurlNoise.bin" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PtclSharp\PtclSharp.csproj" />
+  </ItemGroup>
+
+</Project>

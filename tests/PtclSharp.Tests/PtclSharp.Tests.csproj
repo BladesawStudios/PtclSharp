@@ -23,6 +23,8 @@
     <ProjectReference Include="..\..\src\PtclSharp.Textures\PtclSharp.Textures.csproj" />
     <ProjectReference Include="..\..\src\PtclSharp.Shaders\PtclSharp.Shaders.csproj" />
     <ProjectReference Include="..\..\src\PtclSharp.Models\PtclSharp.Models.csproj" />
+    <ProjectReference Include="..\..\src\PtclSharp.Simulation\PtclSharp.Simulation.csproj" />
+    <ProjectReference Include="..\..\src\PtclSharp.Rendering\PtclSharp.Rendering.csproj" />
   </ItemGroup>
 
 </Project>

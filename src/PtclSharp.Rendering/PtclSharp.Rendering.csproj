@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoWarn>$(NoWarn);CS8632;CS0436</NoWarn>
+    <PtclLibRoot Condition="'$(PtclLibRoot)' == ''">$(MSBuildThisFileDirectory)..\..\lib</PtclLibRoot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Silk.NET.OpenGL" Version="2.23.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PtclSharp.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Glsl\**\*.glsl" LogicalName="Glsl/%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PtclSharp.Simulation\PtclSharp.Simulation.csproj" />
+    <ProjectReference Include="..\PtclSharp.Textures\PtclSharp.Textures.csproj" />
+    <!-- Decompiles the effect shader archives (BNSH) to GLSL; the lib/ShaderLibrary submodule (override PtclLibRoot to use another checkout). -->
+    <ProjectReference Include="$(PtclLibRoot)\ShaderLibrary\ShaderLibrary.CompileTool\ShaderLibrary.CompileTool.csproj" />
+    <!-- Dumps draw meshes and volume primitives out of process (see MeshLibrary); built first so the tool exists beside the library's output. -->
+    <ProjectReference Include="..\..\tools\PtclMeshDump\PtclMeshDump.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+</Project>
