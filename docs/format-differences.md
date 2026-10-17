@@ -32,6 +32,22 @@ The executable traces confirm that both generations walk ESET and EMTR sibling
 chains, resolve attribute chunks by FourCC, and use the name at serialized data
 offset `+0x10` for emitter-set lookup.
 
+## Pokemon Legends: Z-A (binary version 22)
+
+Z-A ships raw VFXB payloads as `.ptcl` files inside its packed romfs (`arc/data.trpfs`, Oodle-compressed packs), with no
+Yaz0 or BYML wrapper. Its binary version is 22 (`0x16`).
+
+What holds, checked against all 2,657 extracted Z-A effects through `VfxbReader.ReadTree`:
+
+- The node headers and tree follow the same rules as BotW and TotK (32-byte headers, relative child, sibling,
+  attribute and data offsets, child counts bounding the child chain, terminated GRSN chains).
+- ESET and EMTR names are at data `+0x10`, as in both other games.
+- Top-level nodes: ESTA, GRTF (BNTX textures), GTNT, PRMA, G3PR (BFRES models), G3NT, GRSN and GRSC (BNSH shaders).
+
+What is not established yet, so there is no `VfxbLayout` for Z-A and `VfxbReader.Read` refuses version 22: the ESET and
+EMTR fixed-data sizes, where the ESET emitter count sits and how wide it is, the EMTR resource body offset, and the
+texture sampler GUID offsets. Until those are confirmed, read Z-A files with `VfxbReader.ReadTree`.
+
 ## Why conversion needs a target writer
 
 Even when an attribute FourCC exists in both games, the surrounding EMTR body,

@@ -12,6 +12,23 @@ internal static class Corpus
     internal const string TotkEnv = "PTCL_TOTK_ROMFS";
     internal const string BotwEnv = "PTCL_BOTW_ROM";
     internal const string BotwWiiUEnv = "PTCL_BOTW_WIIU_ROM";
+    internal const string ZaEnv = "PTCL_ZA_EFFECTS";
+
+    /// <summary>
+    /// A folder holding Pokemon Legends: Z-A effect files (<c>*.ptcl</c>, searched recursively). Z-A packs its romfs
+    /// into arc/data.trpfs, so these have to be extracted first; null when the variable is unset.
+    /// </summary>
+    internal static string? ZaRoot
+    {
+        get
+        {
+            string? root = Environment.GetEnvironmentVariable(ZaEnv);
+            return root is not null && Directory.Exists(root) ? root : null;
+        }
+    }
+
+    internal static IEnumerable<string> ZaFiles() =>
+        Directory.GetFiles(ZaRoot!, "*.ptcl", SearchOption.AllDirectories).Order(StringComparer.Ordinal);
 
     internal static string? TotkRoot
     {
@@ -79,6 +96,16 @@ public sealed class TotkCorpusFactAttribute : FactAttribute
     {
         if (Corpus.TotkRoot is null)
             Skip = $"Set {Corpus.TotkEnv} to a TotK romfs root to run the corpus tests.";
+    }
+}
+
+/// <summary>A <see cref="FactAttribute"/> that is skipped when the Z-A effect files are not available.</summary>
+public sealed class ZaCorpusFactAttribute : FactAttribute
+{
+    public ZaCorpusFactAttribute()
+    {
+        if (Corpus.ZaRoot is null)
+            Skip = $"Set {Corpus.ZaEnv} to a folder of extracted Z-A *.ptcl files to run the Z-A corpus tests.";
     }
 }
 

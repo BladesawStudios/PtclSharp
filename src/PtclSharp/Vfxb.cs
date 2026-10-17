@@ -128,7 +128,9 @@ public sealed class VfxbFile
     /// The bytes of a node's data block: up to its first child or attribute node, or the whole declared size for
     /// nodes whose size covers only their binary (textures, primitives, shaders and their name tables).
     /// </summary>
-    public ReadOnlySpan<byte> NodeData(VfxbNode node)
+    public ReadOnlySpan<byte> NodeData(VfxbNode node) => NodeDataOf(Data, node);
+
+    internal static ReadOnlySpan<byte> NodeDataOf(byte[] data, VfxbNode node)
     {
         if (node.DataRelativeOffset < 0 || node.DataRelativeOffset >= 0x10000000)
             return [];
@@ -144,9 +146,9 @@ public sealed class VfxbFile
                     end = rel;
             length = Math.Max(0, end - node.DataRelativeOffset);
         }
-        if (start < 0 || start + length > Data.Length)
+        if (start < 0 || start + length > data.Length)
             throw new InvalidDataException($"{node.Kind} data at 0x{start:X}+0x{length:X} is outside the file.");
-        return Data.AsSpan(start, (int)length);
+        return data.AsSpan(start, (int)length);
     }
 
     private static readonly HashSet<string> BinaryNodes = ["TEXR", "GX2B", "PRIM", "SHDB", "GRTF", "GTNT", "G3PR", "G3NT", "GRSN", "GRSC"];
@@ -171,6 +173,42 @@ public sealed class VfxbFile
     }
 }
 
+/// <summary>
+/// A VFXB node tree read without a layout (<see cref="VfxbReader.ReadTree"/>): the header and nodes only, no emitter
+/// sets or typed views. Works for any binary version, including ones with no <see cref="VfxbLayout"/> yet.
+/// </summary>
+public sealed class VfxbTree
+{
+    internal VfxbTree(byte[] data, VfxbHeader header, IReadOnlyList<VfxbNode> roots)
+    {
+        Data = data;
+        Header = header;
+        Roots = roots;
+    }
+
+    /// <summary>The original payload.</summary>
+    public byte[] Data { get; }
+    public VfxbHeader Header { get; }
+    public IReadOnlyList<VfxbNode> Roots { get; }
+    public bool BigEndian => Header.BigEndian;
+
+    /// <summary>The bytes of a node's data block, as <see cref="VfxbFile.NodeData"/>.</summary>
+    public ReadOnlySpan<byte> NodeData(VfxbNode node) => VfxbFile.NodeDataOf(Data, node);
+
+    /// <summary>
+    /// The name of an ESET (emitter set) or EMTR (emitter) node: the fixed 0x40-byte string at the start of its data
+    /// block + 0x10, where every known version keeps it (BotW 20, Z-A 22, TotK 51). Null for other nodes.
+    /// </summary>
+    public string? NameOf(VfxbNode node)
+    {
+        if (node.Kind is not ("ESET" or "EMTR") || node.DataOffset is not int offset || offset + 0x50 > Data.Length)
+            return null;
+        ReadOnlySpan<byte> span = Data.AsSpan(offset + 0x10, 0x40);
+        int terminator = span.IndexOf((byte)0);
+        return Encoding.UTF8.GetString(terminator < 0 ? span : span[..terminator]);
+    }
+}
+
 public static class VfxbReader
 {
     private const int HeaderSize = 0x20;
@@ -182,6 +220,47 @@ public static class VfxbReader
         bytes.Length >= HeaderSize && (bytes[..8].SequenceEqual("VFXB    "u8) || bytes[..4].SequenceEqual("EFTB"u8));
 
     public static VfxbFile Read(ReadOnlySpan<byte> bytes, VfxbLayout? expectedLayout = null)
+    {
+        VfxbHeader header = ReadHeader(bytes);
+
+        VfxbLayout layout = expectedLayout ?? header.BinaryVersion switch
+        {
+            20 => VfxbLayouts.BotW,
+            51 => VfxbLayouts.TotK,
+            ZaBinaryVersion => throw new PtclVersionException(
+                $"VFXB binary version {ZaBinaryVersion} (Pokemon Legends: Z-A) has no emitter layout yet; read its node tree with {nameof(VfxbReader)}.{nameof(ReadTree)}."),
+            _ => throw new PtclVersionException($"Unsupported VFXB binary version {header.BinaryVersion}.")
+        };
+
+        if (header.BinaryVersion != layout.BinaryVersion)
+            throw new PtclVersionException(
+                $"Expected VFXB binary version {layout.BinaryVersion}, got {header.BinaryVersion}.");
+
+        byte[] data = bytes.ToArray();
+        bool big = header.BigEndian;
+        List<VfxbNode> roots = ReadSiblingChain(data, big, header.FirstBlockOffset, new HashSet<int>(), true);
+        VfxbNode? esta = roots.FirstOrDefault(x => x.Kind == "ESTA");
+        List<VfxbEmitterSet> sets = esta is null ? [] : ReadEmitterSets(data, big, esta, layout);
+        return new VfxbFile(data, layout, header, roots, sets);
+    }
+
+    /// <summary>
+    /// Reads the header and the node tree of any VFXB or EFTB payload without a layout, so nothing version-specific is
+    /// interpreted. This is the way to read versions that have no <see cref="VfxbLayout"/> yet, such as Pokemon Legends:
+    /// Z-A's binary version 22, whose node headers and tree follow the same rules as BotW's and TotK's.
+    /// </summary>
+    public static VfxbTree ReadTree(ReadOnlySpan<byte> bytes)
+    {
+        VfxbHeader header = ReadHeader(bytes);
+        byte[] data = bytes.ToArray();
+        List<VfxbNode> roots = ReadSiblingChain(data, header.BigEndian, header.FirstBlockOffset, new HashSet<int>(), true);
+        return new VfxbTree(data, header, roots);
+    }
+
+    /// <summary>Pokemon Legends: Z-A's VFXB binary version: readable as a tree (<see cref="ReadTree"/>), no layout yet.</summary>
+    public const ushort ZaBinaryVersion = 22;
+
+    private static VfxbHeader ReadHeader(ReadOnlySpan<byte> bytes)
     {
         if (bytes.Length < HeaderSize)
             throw new InvalidDataException("VFXB is shorter than its binary header.");
@@ -226,24 +305,7 @@ public static class VfxbReader
             if (header.FileSize != bytes.Length)
                 throw new InvalidDataException($"VFXB header size {header.FileSize} does not match {bytes.Length} bytes.");
         }
-
-        VfxbLayout layout = expectedLayout ?? header.BinaryVersion switch
-        {
-            20 => VfxbLayouts.BotW,
-            51 => VfxbLayouts.TotK,
-            _ => throw new PtclVersionException($"Unsupported VFXB binary version {header.BinaryVersion}.")
-        };
-
-        if (header.BinaryVersion != layout.BinaryVersion)
-            throw new PtclVersionException(
-                $"Expected VFXB binary version {layout.BinaryVersion}, got {header.BinaryVersion}.");
-
-        byte[] data = bytes.ToArray();
-        bool big = header.BigEndian;
-        List<VfxbNode> roots = ReadSiblingChain(data, big, header.FirstBlockOffset, new HashSet<int>(), true);
-        VfxbNode? esta = roots.FirstOrDefault(x => x.Kind == "ESTA");
-        List<VfxbEmitterSet> sets = esta is null ? [] : ReadEmitterSets(data, big, esta, layout);
-        return new VfxbFile(data, layout, header, roots, sets);
+        return header;
     }
 
     private static List<VfxbEmitterSet> ReadEmitterSets(byte[] data, bool big, VfxbNode esta, VfxbLayout layout)
